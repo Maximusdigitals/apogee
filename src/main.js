@@ -333,7 +333,18 @@ function frame(i) {
   if (s.id === 'belt') { beltFocus(tmp); const yaw = Math.atan2(tmp.x, tmp.z) + PI / 2 + .35; return { anchor: beltFocus, dist: 6.5, yaw, pitch: .1 }; }
   const p = P[s.id]; const pos = p.root.position, yaw0 = Math.atan2(-pos.x, -pos.z);
   const f = portrait() ? .5 : .4, R = p.ring ? p.r * 2.3 : p.r;
-  return { anchor: v => v.copy(p.root.position), dist: fitDist(R, f), yaw: yaw0 + .95, pitch: p.ring ? .3 : .12 };
+  const dist = fitDist(R, f);
+  // pick the viewing angle with the clearest background: no other planet or the Sun sitting right behind this one
+  let bestYaw = yaw0 + .95, bestScore = -1; const pitch = p.ring ? .3 : .12, cp = Math.cos(pitch);
+  for (const off of [.95, -.95, .6, -.6, 1.15, -1.15, .3, -.3]) {
+    const yw = yaw0 + off, cx = pos.x + dist * cp * Math.sin(yw), cy = pos.y + dist * Math.sin(pitch), cz = pos.z + dist * cp * Math.cos(yw);
+    const dx = pos.x - cx, dy = pos.y - cy, dz = pos.z - cz, dl = Math.hypot(dx, dy, dz); let score = 9;
+    for (const o of PL) { if (o === p) continue; const ox = o.root.position.x - cx, oy = o.root.position.y - cy, oz = o.root.position.z - cz, ol = Math.hypot(ox, oy, oz); if (ol < dl) continue;
+      const ang = Math.acos(clamp((dx * ox + dy * oy + dz * oz) / (dl * ol), -1, 1)), need = Math.atan(R / dl) * 1.5 + Math.atan(o.r / ol); score = Math.min(score, ang / need); }
+    { const ox = -cx, oy = -cy, oz = -cz, ol = Math.hypot(ox, oy, oz); if (ol > dl) { const ang = Math.acos(clamp((dx * ox + dy * oy + dz * oz) / (dl * ol), -1, 1)), need = Math.atan(R / dl) * 1.5 + Math.atan(SUN_R / ol); score = Math.min(score, ang / need); } }
+    const sc = Math.min(score, 2.5) - Math.abs(Math.abs(off) - .95) * .35 - (off < 0 ? .1 : 0); if (sc > bestScore) { bestScore = sc; bestYaw = yw; }
+  }
+  return { anchor: v => v.copy(p.root.position), dist, yaw: bestYaw, pitch };
 }
 // One camera, always chasing one destination through critically damped springs (position offset, log-distance, yaw, pitch).
 // Any new destination just retargets the springs, so velocity stays continuous: every transition is interruptible, nothing is ignored or queued.
