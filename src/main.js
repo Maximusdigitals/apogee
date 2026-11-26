@@ -314,6 +314,9 @@ const rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, sample
 const composer = new EffectComposer(renderer, rt);
 const renderPass = new RenderPass(scene, camera); composer.addPass(renderPass);
 const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), .9, .55, .92); composer.addPass(bloom);
+// A single NaN/Inf HDR pixel would be smeared by the bloom blur into a black blob; sanitise what the bloom reads.
+bloom.materialHighPassFilter.fragmentShader = bloom.materialHighPassFilter.fragmentShader.replace('vec4 texel = texture2D( tDiffuse, vUv );', 'vec4 texel = texture2D( tDiffuse, vUv ); texel.rgb = vec3(sf(texel.r), sf(texel.g), sf(texel.b));').replace('void main()', 'float sf(float x){ return x > 0. ? min(x, 64.) : (x >= 64. ? 64. : 0.); }\nvoid main()');
+bloom.materialHighPassFilter.needsUpdate = true;
 if (MOBILE) { bloom.nMips = 3; const ss = bloom.setSize.bind(bloom); bloom.setSize = (w, h) => ss(Math.round(w * .5), Math.round(h * .5)); }
 composer.addPass(new OutputPass());
 const flare = new Flare();
@@ -933,7 +936,7 @@ window.__apBegin = begin;
 $('#snd').onclick = () => { sound.unlock(); sound.set(!sound.on); $('#snd').classList.toggle('on', sound.on); };
 if (window.__apWant !== undefined) setTimeout(() => begin(window.__apWant), 0);
 document.addEventListener('visibilitychange', () => { if (sound.ctx) { if (document.hidden) sound.ctx.suspend(); else if (sound.on) sound.ctx.resume(); } });
-AP.go = i => go(i); AP.enterEarth = () => enterEarth(); AP.dive = k => dive(k); AP.locate = () => locateSignal(); AP.say = () => say; AP.astroScreen = i => { if (!alt || !alt.astros) return null; const a = alt.astros[i]; a.g.getWorldPosition(_sp); _sp.y += 1.8; _sp.project(alt.cam); return { x: (_sp.x * .5 + .5) * W, y: (-_sp.y * .5 + .5) * H, z: _sp.z }; }; AP.tapHyper = () => renderHyperCard(); AP.exitHyper = () => exitHyper();
+AP.go = i => go(i); AP.enterEarth = () => enterEarth(); AP.dive = k => dive(k); AP.locate = () => locateSignal(); AP.say = () => say; AP.dbg = () => ({ L: earthU.L.value.toArray(), lmix: E.lmix, cs: earthU.cloudShift.value, q: E.spin.quaternion.toArray(), pos: camera.position.toArray(), meshVis: E.mesh.visible, atmoVis: E.atmo.visible, ew: E.spin.matrixWorld.elements.slice(12, 15), bloomOn: bloom.enabled, spin: [E.own, E.u, E.uT, E.uv, E.goal], info: renderer.info.programs ? renderer.info.programs.length : 0 }); AP.bloom = v => { bloom.enabled = v; }; AP.astroScreen = i => { if (!alt || !alt.astros) return null; const a = alt.astros[i]; a.g.getWorldPosition(_sp); _sp.y += 1.8; _sp.project(alt.cam); return { x: (_sp.x * .5 + .5) * W, y: (-_sp.y * .5 + .5) * H, z: _sp.z }; }; AP.tapHyper = () => renderHyperCard(); AP.exitHyper = () => exitHyper();
 AP.get = () => ({ alt: altKind, marsVis: AP.marsVis, marsNear: AP.marsNear, waving: alt && alt.astros ? alt.astros.map(a => (a.wt > 0 && a.wd <= 0) ? 1 : 0) : null,  hAz: alt ? alt.controls.getAzimuthalAngle() : 0, spinU: (inspBody() || {}).u,  tx: rig.target.x, ty: rig.target.y, tz: rig.target.z, cx: camera.position.x, cy: camera.position.y, cz: camera.position.z, calls: AP.calls, tris: AP.tris, yaw: rig.yaw, pitch: rig.pitch, yawT: rig.yawT, mode, stop, card: cardOpen, tr: !!rig.tr, calm: rig.calm, dist: rig.dist, zoom: rig.zoom, sigVis: AP.sigVis, dpr, fps: AP.fps, intro: alt && !!alt.intro });
 AP.faceSignal = () => { scene.updateMatrixWorld(); const a = signal.getWorldPosition(new V3()).sub(E.root.position).normalize(); rig.yaw = rig.yawT = rig.yB = rig.yBT = Math.atan2(a.x, a.z); rig.pitch = rig.pitchT = rig.pB = rig.pBT = Math.asin(a.y); rig.yU = rig.yUT = rig.pU = rig.pUT = 0; rig.vy = rig.vp = 0; sdv.yB = sdv.pB = sdv.yU = sdv.pU = 0; };
 boot();
