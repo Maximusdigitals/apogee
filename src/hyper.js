@@ -109,7 +109,7 @@ export class Hyper {
     this.controls.addEventListener('end', () => { clearTimeout(this._ar); this._ar = setTimeout(() => { if (!this.reduced) this.controls.autoRotate = true; }, 6000); });
     this.ray = new THREE.Raycaster(); this.t = 0; this.intro = null;
   }
-  resize(w, h, dpr) { this.cam.aspect = w / h; this.cam.fov = w / h < .8 ? 52 : 38; this.cam.updateProjectionMatrix(); this.starMat.uniforms.dpr.value = dpr; }
+  resize(w, h, dpr) { this.cam.aspect = w / h; this.cam.fov = w / h < .8 ? 52 : 38; this.cam.updateProjectionMatrix(); this.starMat.uniforms.dpr.value = dpr; if (!this.intro) this.controls.target.y = this.size.y * (w / h < .8 ? .6 : .42) + .6; }
   enter(reduced) {
     this.reduced = reduced; this.controls.autoRotate = !reduced;
     const far = this.cam.aspect < .8 ? 112 : 90;

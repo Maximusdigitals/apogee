@@ -305,7 +305,7 @@ const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), .9, .55, .92); co
 if (MOBILE) { const ss = bloom.setSize.bind(bloom); bloom.setSize = (w, h) => ss(Math.round(w * .6), Math.round(h * .6)); }
 composer.addPass(new OutputPass());
 const flare = new Flare();
-let hyper = null; const getHyper = () => hyper || (hyper = new Hyper(renderer, canvas, MOBILE));
+let hyper = null; const getHyper = () => { if (!hyper) { hyper = new Hyper(renderer, canvas, MOBILE); hyper.resize(W, H, dpr); try { renderer.compileAsync ? renderer.compileAsync(hyper.scene, hyper.cam).catch(() => { }) : renderer.compile(hyper.scene, hyper.cam); } catch (e) { } } return hyper; };
 
 // ---------------------------------------------------------------- camera rig
 const rig = { target: new V3(), dist: 2600, yaw: .9, pitch: .7, anchor: v => v.set(0, 0, 0), tr: null, vy: 0, vp: 0, zoom: 1, zoomT: 1 };
@@ -318,7 +318,7 @@ function overviewDist() { return fitDist(104, .92); }
 function frame(i) {
   const s = STOPS[i], tmp = new V3();
   if (s.id === 'overview') return { anchor: v => v.set(0, 0, 0), dist: overviewDist(), yaw: rig.yaw, pitch: .72 };
-  if (s.id === 'sun') return { anchor: v => v.set(0, 0, 0), dist: fitDist(SUN_R, portrait() ? .5 : .36), yaw: rig.yaw, pitch: .12 };
+  if (s.id === 'sun') return { anchor: v => v.set(0, 0, 0), dist: fitDist(SUN_R, portrait() ? .3 : .34), yaw: rig.yaw, pitch: .12 };
   if (s.id === 'belt') { beltFocus(tmp); const yaw = Math.atan2(tmp.x, tmp.z) + PI / 2 + .35; return { anchor: beltFocus, dist: 6.5, yaw, pitch: .1 }; }
   const p = P[s.id]; const pos = p.root.position, yaw0 = Math.atan2(-pos.x, -pos.z);
   const f = portrait() ? .5 : .4, R = p.ring ? p.r * 2.3 : p.r;
@@ -419,7 +419,7 @@ function go(i, opts = {}) {
 function enterEarth() {
   if (mode !== 'system' || STOPS[stop].id !== 'earth') return;
   mode = 'earth'; AP.mode = mode; closeCard(); sound.whoosh(2.2); document.body.classList.add('in-earth');
-  queueHi(['earth:xl', 'night:xl'], true);
+  if (!MOBILE) queueHi(['earth:xl', 'night:xl'], true);
   E.frozen = true;
   // arrive above West Africa; the signal is on the other side of the globe
   scene.updateMatrixWorld(); const a = E.spin.localToWorld(ll(8, 8)).sub(E.root.position).normalize();
@@ -471,7 +471,7 @@ let ptr = null, pinch = null, wheelAcc = 0, wheelLock = 0, lastWheel = 0;
 canvas.addEventListener('pointerdown', e => {
   if (mode === 'hyper') { ptr = { x: e.clientX, y: e.clientY, t: performance.now(), moved: 0 }; return; }
   if (pinch) return;
-  canvas.setPointerCapture?.(e.pointerId);
+  try { canvas.setPointerCapture(e.pointerId); } catch (_) { }
   ptr = { id: e.pointerId, x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, t: performance.now(), moved: 0, axis: null, type: e.pointerType };
 });
 canvas.addEventListener('pointermove', e => {
@@ -584,8 +584,8 @@ let last = performance.now(), tAcc = 0, frames = 0, fpsT = 0, slow = 0, t = 0;
 const earthLightTmp = new V3();
 function tick(now) {
   requestAnimationFrame(tick);
-  let dt = (now - last) / 1000; last = now; if (dt > .1) dt = .1; if (dt <= 0) return; t += dt;
-  frames++; fpsT += dt; if (fpsT > 1) { AP.fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
+  let dt = (now - last) / 1000; last = now; const rdt = dt; if (dt > .1) dt = .1; if (dt <= 0) return; t += dt;
+  frames++; fpsT += rdt; if (fpsT > 1) { AP.fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
   // adaptive resolution: step down gently if a phone struggles
   if (AP.ready && mode !== 'boot') { tAcc += dt; if (dt > 1 / 38) slow++; if (tAcc > 2.5) { if (slow > tAcc * 22 && dpr > 1.01) { dpr = Math.max(1, dpr - .2); resize(); } tAcc = 0; slow = 0; } }
 
@@ -736,7 +736,7 @@ async function boot() {
   rig.target.set(0, 0, 0); rig.dist = overviewDist() * 2.6; rig.base = rig.dist; rig.yaw = .9; rig.pitch = .62; mode = 'boot';
   try { renderer.compile(scene, camera); } catch (e) { }
   requestAnimationFrame(tick);
-  queueHi(['stars', 'sun', 'earth', 'night', 'clouds', 'jupiter', 'saturn', 'mars', 'venus', 'mercury', 'uranus', 'neptune', 'moon', 'spec', 'normal']);
+  queueHi(['stars', 'sun', 'earth', 'night', 'clouds', 'jupiter', 'saturn', 'mars', 'venus', 'mercury', 'uranus', 'neptune', 'moon', 'spec', 'normal', ...(MOBILE ? [] : ['earth:xl', 'night:xl'])]);
   setTimeout(() => { AP.ready = true; document.body.classList.add('ready'); window.__apReady && window.__apReady(); }, 120);
 }
 function begin(withSound) {
@@ -746,7 +746,7 @@ function begin(withSound) {
   mode = 'intro'; AP.mode = mode; stop = 0;
   flyTo({ anchor: v => v.set(0, 0, 0), dist: overviewDist(), yaw: rig.yaw + .9, pitch: .72 }, REDUCED ? 1.2 : 5.2); rig.tr.arc = 0;
   sound.whoosh(4.5);
-  setTimeout(() => getHyper(), 6000); // warm up the monument scene in the background
+  setTimeout(() => (window.requestIdleCallback || (f => setTimeout(f, 1)))(() => getHyper(), { timeout: 4000 }), 7000); // warm up the monument scene in the background
 }
 window.__apBegin = begin;
 $('#snd').onclick = () => { sound.unlock(); sound.set(!sound.on); $('#snd').classList.toggle('on', sound.on); };
