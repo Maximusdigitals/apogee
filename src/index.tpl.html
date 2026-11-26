@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Apogee: a journey through the solar system</title>
+<meta name="description" content="Float through the solar system as an astronaut. Every planet and moon in motion, real NASA-derived imagery, and one green signal shining somewhere on Earth.">
+<meta name="theme-color" content="#020306">
+<meta property="og:title" content="Apogee: a journey through the solar system">
+<meta property="og:description" content="Float planet to planet as an astronaut. Then go inside Earth and find the green signal.">
+<meta property="og:image" content="https://maximusdigitals.github.io/apogee/img/og.jpg">
+<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Apogee: the solar system in 3D, with the Sun glowing at the centre">
+<meta property="og:type" content="website"><meta property="og:site_name" content="Apogee">
+<meta property="og:url" content="https://maximusdigitals.github.io/apogee/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Apogee: a journey through the solar system">
+<meta name="twitter:description" content="Float planet to planet as an astronaut. Then go inside Earth and find the green signal.">
+<meta name="twitter:image" content="https://maximusdigitals.github.io/apogee/img/og.jpg">
+<meta name="twitter:image:alt" content="Apogee: the solar system in 3D, with the Sun glowing at the centre">
+<meta name="twitter:creator" content="@voidhl">
+<meta name="format-detection" content="telephone=no">
+<link rel="canonical" href="https://maximusdigitals.github.io/apogee/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23020306'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23ffd9a8'/%3E%3Cellipse cx='16' cy='16' rx='12' ry='5' fill='none' stroke='%2397fce4' stroke-width='1.2' transform='rotate(-20 16 16)'/%3E%3C/svg%3E">
+<link rel="preload" href="fonts/InterTight.woff2?v=__V__" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/JetBrainsMono.woff2?v=__V__" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="style.css?v=__V__">
+<script>window.__V = '__V__';</script>
+</head>
+<body>
+<canvas id="gl" aria-label="The solar system in 3D. Scroll or swipe to travel between planets, drag to look around, tap a planet for its story."></canvas>
+<div id="vig" aria-hidden="true"></div>
+<div id="frame" aria-hidden="true"><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i><b class="reticle"></b></div>
+<div id="labels"></div>
+
+<header id="hud">
+  <div class="brand"><b>Apogee</b><span>Solar system survey</span></div>
+  <div class="hud-r">
+    <div id="tele" aria-live="polite"></div>
+    <button id="snd" type="button" aria-label="Sound on or off"><span class="eq"><i></i><i></i><i></i><i></i></span><span class="lbl">Sound</span></button>
+  </div>
+</header>
+
+<nav id="rail" aria-label="Destinations">
+  <button id="prev" type="button" aria-label="Previous destination"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+  <div class="ticks"></div>
+  <button id="next" type="button" aria-label="Next destination"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button>
+</nav>
+<p id="hint" aria-live="polite"></p>
+
+<aside id="card" aria-live="polite"><button id="cardX" type="button" aria-label="Close">×</button><div id="cardIn"></div></aside>
+<div id="pop" role="dialog"></div>
+
+<div id="earthUI"><button id="earthBack" type="button"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>Back to orbit</button></div>
+<div id="hyperUI"><button id="hyperBack" type="button"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>Return to orbit</button></div>
+<div id="fade" aria-hidden="true"></div>
+
+<div id="loader">
+  <div class="ld-mid">
+    <p class="ld-k">A journey through the solar system</p>
+    <h1>Apogee</h1>
+    <div class="ld-load"><div class="ld-bar"><i id="ldBar"></i></div><p class="ld-pct"><span id="ldPct">000</span>Loading imagery</p></div>
+    <div class="ld-go">
+      <button id="go" class="btn" type="button"><span>Begin descent</span><i></i></button>
+      <button id="goQuiet" class="lnk" type="button">Enter without sound</button>
+    </div>
+  </div>
+  <p class="ld-foot">Drag to look around · Scroll or swipe to travel · Tap a planet</p>
+  <p class="ld-nogl">This browser couldn’t start 3D graphics (WebGL 2). Try opening the link in Safari or Chrome.</p>
+</div>
+<script>
+(function () {
+  function b(s) { if (window.__apBegin && window.__ap && window.__ap.ready) window.__apBegin(s); }
+  document.getElementById('go').addEventListener('click', function () { b(true); });
+  document.getElementById('goQuiet').addEventListener('click', function () { b(false); });
+  window.addEventListener('error', function (e) { if (!window.__ap || !window.__ap.ready) { if (String(e.message || '').indexOf('webgl') >= 0 || !window.WebGL2RenderingContext) document.body.classList.add('nogl'); } });
+})();
+</script>
+<script src="app.js?v=__V__" defer></script>
+</body>
+</html>
