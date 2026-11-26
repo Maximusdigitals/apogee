@@ -1,5 +1,5 @@
-@font-face { font-family: 'Inter Tight'; src: url(fonts/InterTight.woff2?v=675504) format('woff2'); font-weight: 100 900; font-display: swap; }
-@font-face { font-family: 'JB Mono'; src: url(fonts/JetBrainsMono.woff2?v=675504) format('woff2'); font-weight: 100 800; font-display: swap; }
+@font-face { font-family: 'Inter Tight'; src: url(fonts/InterTight.woff2?v=675581) format('woff2'); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: 'JB Mono'; src: url(fonts/JetBrainsMono.woff2?v=675581) format('woff2'); font-weight: 100 800; font-display: swap; }
 :root {
   --ink: #e9eef3; --mute: rgba(233, 238, 243, .62); --dim: rgba(233, 238, 243, .36); --line: rgba(255, 255, 255, .1); --mint: #97fce4;
   --st: env(safe-area-inset-top, 0px); --sb: env(safe-area-inset-bottom, 0px); --sl: env(safe-area-inset-left, 0px); --sr: env(safe-area-inset-right, 0px);

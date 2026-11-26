@@ -763,8 +763,10 @@ function tick(now) {
   scene.updateMatrixWorld();
   if (hoverQ && mode === 'system' && (frames & 3) === 0) { const h = pickBody(hoverQ.x, hoverQ.y) !== null; if (h !== hoverOn) { hoverOn = h; canvas.style.cursor = h ? 'pointer' : ''; } }
   updateLabels(dt);
+  renderer.info.autoReset = false; renderer.info.reset();
   composer.render(dt);
   flare.render(renderer);
+  AP.calls = renderer.info.render.calls; AP.tris = renderer.info.render.triangles;
 }
 
 const labelState = new WeakMap();
@@ -834,6 +836,6 @@ $('#snd').onclick = () => { sound.unlock(); sound.set(!sound.on); $('#snd').clas
 if (window.__apWant !== undefined) setTimeout(() => begin(window.__apWant), 0);
 document.addEventListener('visibilitychange', () => { if (sound.ctx) { if (document.hidden) sound.ctx.suspend(); else if (sound.on) sound.ctx.resume(); } });
 AP.go = i => go(i); AP.enterEarth = () => enterEarth(); AP.dive = () => dive(); AP.tapHyper = () => renderHyperCard(); AP.exitHyper = () => exitHyper();
-AP.get = () => ({ yaw: rig.yaw, pitch: rig.pitch, yawT: rig.yawT, nav: navS, mode, stop, card: cardOpen, tr: !!rig.tr, calm: rig.calm, dist: rig.dist, zoom: rig.zoom, sigVis: AP.sigVis, dpr, fps: AP.fps, intro: hyper && !!hyper.intro });
+AP.get = () => ({ tx: rig.target.x, ty: rig.target.y, tz: rig.target.z, cx: camera.position.x, cy: camera.position.y, cz: camera.position.z, calls: AP.calls, tris: AP.tris, yaw: rig.yaw, pitch: rig.pitch, yawT: rig.yawT, nav: navS, mode, stop, card: cardOpen, tr: !!rig.tr, calm: rig.calm, dist: rig.dist, zoom: rig.zoom, sigVis: AP.sigVis, dpr, fps: AP.fps, intro: hyper && !!hyper.intro });
 AP.faceSignal = () => { scene.updateMatrixWorld(); const a = signal.getWorldPosition(new V3()).sub(E.root.position).normalize(); rig.yaw = rig.yawT = rig.yB = rig.yBT = Math.atan2(a.x, a.z); rig.pitch = rig.pitchT = rig.pB = rig.pBT = Math.asin(a.y); rig.yU = rig.yUT = rig.pU = rig.pUT = 0; rig.vy = rig.vp = 0; sdv.yB = sdv.pB = sdv.yU = sdv.pU = 0; };
 boot();
