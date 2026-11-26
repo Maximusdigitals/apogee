@@ -103,13 +103,13 @@ export class Hyper {
     const rim = new THREE.DirectionalLight(0x8fdcff, 1.4); rim.position.set(40, 25, -60); s.add(rim);
 
     this.controls = new OrbitControls(this.cam, canvas);
-    Object.assign(this.controls, { enableDamping: true, dampingFactor: .06, enablePan: false, minDistance: 42, maxDistance: 170, maxPolarAngle: 1.5, minPolarAngle: .2, rotateSpeed: mobile ? .7 : .5, zoomSpeed: .6, autoRotate: true, autoRotateSpeed: -.35 });
+    Object.assign(this.controls, { enableDamping: true, dampingFactor: .06, enablePan: false, minDistance: 42, maxDistance: 170, maxPolarAngle: 1.5, minPolarAngle: .2, zoomSpeed: .6, autoRotate: true, autoRotateSpeed: -.35 });
     this.controls.target.set(0, this.size.y * .42 + .6, 0); this.controls.enabled = false;
     this.controls.addEventListener('start', () => { this.controls.autoRotate = false; clearTimeout(this._ar); });
     this.controls.addEventListener('end', () => { clearTimeout(this._ar); this._ar = setTimeout(() => { if (!this.reduced) this.controls.autoRotate = true; }, 6000); });
     this.ray = new THREE.Raycaster(); this.t = 0; this.intro = null;
   }
-  resize(w, h, dpr) { this.cam.aspect = w / h; this.cam.fov = w / h < .8 ? 52 : 38; this.cam.updateProjectionMatrix(); this.starMat.uniforms.dpr.value = dpr; if (!this.intro) this.controls.target.y = this.size.y * (w / h < .8 ? .6 : .42) + .6; }
+  resize(w, h, dpr) { this.controls.rotateSpeed = h / (1.2 * Math.min(w, 900)); /* same degrees-per-pixel as the rest of the site */ this.cam.aspect = w / h; this.cam.fov = w / h < .8 ? 52 : 38; this.cam.updateProjectionMatrix(); this.starMat.uniforms.dpr.value = dpr; if (!this.intro) this.controls.target.y = this.size.y * (w / h < .8 ? .6 : .42) + .6; }
   enter(reduced) {
     this.reduced = reduced; this.controls.autoRotate = !reduced;
     const far = this.cam.aspect < .8 ? 112 : 90;

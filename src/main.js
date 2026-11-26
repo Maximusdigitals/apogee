@@ -356,8 +356,9 @@ STOPS.forEach((s, i) => {
   const b = document.createElement('button'); b.className = 'tick'; b.dataset.i = i; b.setAttribute('aria-label', s.name);
   b.innerHTML = `<i></i><span>${s.short}</span>`; b.onclick = () => { sound.blip(700); go(i, { force: true }); }; ui.rail.querySelector('.ticks').appendChild(b);
 });
-$('#prev').onclick = () => { sound.blip(600); go(stop - 1); };
-$('#next').onclick = () => { sound.blip(760); go(stop + 1); };
+const stepStop = d => { const n = clamp(stop + d, 0, STOPS.length - 1); if (n === stop) return; sound.blip(d > 0 ? 760 : 600); go(n); try { navigator.vibrate && navigator.vibrate(5); } catch (_) { } };
+$('#prev').onclick = () => stepStop(-1); $('#next').onclick = () => stepStop(1);
+$('#sPrev').onclick = () => stepStop(-1); $('#sNext').onclick = () => stepStop(1);
 // overview labels
 const plabels = STOPS.map((s, i) => {
   if (s.id === 'overview') return null;
@@ -398,8 +399,8 @@ function renderHyperCard() {
   ui.cardIn.querySelector('.c-more').onclick = () => { cardFull = ui.card.classList.toggle('open'); sound.blip(820); };
   openCard(); sound.chime();
 }
-function openCard() { cardOpen = true; ui.card.classList.add('on'); ui.cardIn.scrollTop = 0; }
-function closeCard() { cardOpen = false; cardFull = false; ui.card.classList.remove('on', 'open'); }
+function openCard() { cardOpen = true; document.body.classList.add('card-on'); ui.card.classList.add('on'); ui.cardIn.scrollTop = 0; }
+function closeCard() { cardOpen = false; cardFull = false; document.body.classList.remove('card-on'); ui.card.classList.remove('on', 'open'); }
 $('#cardX').onclick = () => { closeCard(); sound.blip(500); };
 
 function setTele(i) {
@@ -419,7 +420,8 @@ function go(i, opts = {}) {
   setDest(frame(i), clamp(1 - (opts.m || 0) * .6, .6, 1)); if (i !== was || !opts.noFly) sound.whoosh(2.2);
   closeCard(); ui.pop.classList.remove('on');
   document.querySelectorAll('.tick').forEach((b, k) => b.classList.toggle('on', k === i));
-  $('#prev').disabled = i === 0; $('#next').disabled = i === STOPS.length - 1;
+  $('#prev').disabled = $('#sPrev').disabled = i === 0; $('#next').disabled = $('#sNext').disabled = i === STOPS.length - 1;
+  $('#sPrev').querySelector('span').textContent = i > 0 ? STOPS[i - 1].short : ''; $('#sNext').querySelector('span').textContent = i < STOPS.length - 1 ? STOPS[i + 1].short : '';
   document.body.dataset.stop = STOPS[i].id; setTele(i);
   const s = STOPS[i]; const pid = s.id;
   if (texSlots[pid]) queueHi([pid], true);
@@ -427,7 +429,7 @@ function go(i, opts = {}) {
   if (pid === 'earth') queueHi(['earth', 'night', 'clouds', 'spec', 'normal'], true);
   if (pid === 'mars' || pid === 'jupiter' || pid === 'saturn' || pid === 'earth' || pid === 'neptune' || pid === 'uranus') queueHi(['moon']);
   rig.onArrive = () => { if (stop === i && mode === 'system') { renderCard(i); try { navigator.vibrate && navigator.vibrate(6); } catch (_) { } } };
-  setHint(i === 0 ? (MOBILE ? 'Swipe up to travel  ·  Drag to look around' : 'Scroll to travel  ·  Drag to look around') : '');
+  setHint(i === 0 ? 'Use the arrows to travel  ·  Drag to look around' : (i === 1 || i === 2 ? 'Drag to spin' : ''));
 }
 
 function enterEarth() {
@@ -451,7 +453,7 @@ $('#earthBack').onclick = () => { sound.blip(500); exitEarth(false); };
 let diveS = null;
 function dive() {
   if (mode !== 'earth') return;
-  mode = 'dive'; AP.mode = mode; ui.pop.classList.remove('on'); ui.earthUI.classList.remove('on'); setHint('');
+  mode = 'dive'; AP.mode = mode; E.uv = 0; ui.pop.classList.remove('on'); ui.earthUI.classList.remove('on'); setHint('');
   scene.updateMatrixWorld();
   const S = signal.getWorldPosition(new V3()), n = S.clone().sub(E.root.position).normalize();
   diveS = { t: 0, d: REDUCED ? 1.2 : 2.6, p0: camera.position.clone(), q0: camera.quaternion.clone(), S, n, f0: camera.fov };
@@ -481,44 +483,29 @@ function exitHyper() {
 $('#hyperBack').onclick = () => { sound.blip(500); exitHyper(); };
 
 // ---------------------------------------------------------------- input
-let ptr = null, pinch = null, wheelAcc = 0, wheelLock = 0, lastWheel = 0, lastNav = 0;
-const NAV_MAX = 90, rubber = d => Math.sign(d) * NAV_MAX * (1 - Math.exp(-Math.abs(d) / 150));
+let ptr = null, pinch = null, rel = null;
 const PB = { passive: true };
 // Pointer handlers only record; every move is applied once per frame inside tick() (coalesced), so input never fights rendering.
+// A drag starts only after a small slop (so taps never rotate anything), then maps finger pixels to a consistent angle.
 canvas.addEventListener('pointerdown', e => {
   if (mode === 'hyper') { ptr = { x: e.clientX, y: e.clientY, t: performance.now(), moved: 0 }; return; }
   if (pinch) return;
   try { canvas.setPointerCapture(e.pointerId); } catch (_) { }
-  ptr = { id: e.pointerId, x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, t: performance.now(), moved: 0, axis: null, type: e.pointerType, ax: 0, ay: 0, px: 0, py: 0, hist: [] };
+  ptr = { id: e.pointerId, x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, t: performance.now(), moved: 0, drag: false, type: e.pointerType, ax: 0, ay: 0 };
 }, PB);
 canvas.addEventListener('pointermove', e => {
   const p = ptr; if (!p || (p.id !== undefined && e.pointerId !== p.id) || pinch) return;
-  if (p.ax === undefined) return; // hyper mode: OrbitControls does the dragging
-  const dx = e.clientX - p.lx, dy = e.clientY - p.ly; p.lx = e.clientX; p.ly = e.clientY;
-  const tdx = e.clientX - p.x, tdy = e.clientY - p.y; p.moved = Math.max(p.moved, Math.hypot(tdx, tdy));
+  if (p.ax === undefined) { p.moved = Math.max(p.moved, Math.hypot(e.clientX - p.x, e.clientY - p.y)); return; } // hyper mode: OrbitControls does the dragging
+  p.moved = Math.max(p.moved, Math.hypot(e.clientX - p.x, e.clientY - p.y));
   if (mode === 'dive' || mode === 'boot' || mode === 'intro') return;
-  const touch = p.type === 'touch';
-  if (touch && !p.axis && p.moved > 10) {
-    p.axis = (mode === 'system' && Math.abs(tdy) > Math.abs(tdx) * 1.6) ? 'v' : 'free';
-    if (p.axis === 'free') { p.ax += p.px; p.ay += p.py; } p.px = p.py = 0;
-  }
-  if (p.axis === 'v') { const n = p.hist; n.push(e.timeStamp, e.clientY); if (n.length > 12) n.splice(0, 2); return; }
-  if (touch && !p.axis) { p.px += dx; p.py += dy; return; } // direction not decided yet
-  p.ax += dx; p.ay += dy;
+  if (!p.drag) { const slop = p.type === 'touch' ? 9 : 4; if (p.moved > slop) { const dx = e.clientX - p.x, dy = e.clientY - p.y, k = 1 - slop / Math.hypot(dx, dy); p.drag = true; p.ax = dx * k; p.ay = dy * k; p.lx = e.clientX; p.ly = e.clientY; if (hoverOn) { hoverOn = false; canvas.style.cursor = ''; } } return; }
+  p.ax += e.clientX - p.lx; p.ay += e.clientY - p.ly; p.lx = e.clientX; p.ly = e.clientY;
 }, PB);
 const endPtr = e => {
   if (!ptr) return; const p = ptr; ptr = null;
   const dt = performance.now() - p.t;
-  if (p.ax === undefined) { if (p.moved < 8 && dt < 500) tap(e.clientX, e.clientY); return; }
-  if (p.moved < 8 && dt < 500) { tap(e.clientX, e.clientY); return; }
-  if (p.type === 'touch' && p.axis === 'v' && mode === 'system') {
-    const dy = e.clientY - p.y, dx = e.clientX - p.x, ad = Math.abs(dy), now = performance.now();
-    // velocity over the last ~110 ms of the swipe
-    const h = p.hist; let v = 0; if (h.length >= 4) { const t1 = h[h.length - 2], y1 = h[h.length - 1]; let k = h.length - 4; while (k > 0 && t1 - h[k] < 110) k -= 2; const t0 = h[k], y0 = h[k + 1]; v = t1 > t0 ? (y1 - y0) / (t1 - t0) : 0; }
-    const dirOK = ad > Math.abs(dx) * 1.6 && (Math.sign(v) === Math.sign(dy) || v === 0);
-    const commit = dirOK && (ad > 64 || (Math.abs(v) > .45 && ad > 24));
-    if (commit && now - lastNav > 140) { lastNav = now; go(stop + (dy < 0 ? 1 : -1), { m: clamp(Math.abs(v) * .45, 0, .6) }); }
-  }
+  if (p.drag && p.lx !== undefined && e.type === 'pointerup') { p.ax += e.clientX - p.lx; p.ay += e.clientY - p.ly; rel = p; } // keep the final delta so a quick flick loses nothing
+  if (!p.drag && p.moved < 9 && dt < 600) tap(e.clientX, e.clientY);
 };
 let hoverQ = null, hoverOn = false;
 canvas.addEventListener('pointermove', e => { if (e.pointerType === 'mouse' && !ptr) hoverQ = { x: e.clientX, y: e.clientY }; }, PB);
@@ -536,12 +523,8 @@ function setZoom(z) {
 addEventListener('wheel', e => {
   if (e.target.closest && e.target.closest('#card, #pop')) return;
   e.preventDefault(); if (mode === 'hyper' || mode === 'dive' || mode === 'boot' || mode === 'intro') return;
-  const now = performance.now(), dy = e.deltaMode === 1 ? e.deltaY * 30 : e.deltaY;
-  if (mode === 'earth' || e.ctrlKey) { setZoom(rig.zoomT * Math.exp(dy * .0015)); return; }
-  const quiet = now - lastWheel; lastWheel = now; if (quiet > 160) wheelAcc = 0;
-  if (now < wheelLock) { if (quiet > 160) wheelLock = 0; else return; } // one notch or flick = one stop; the tail of a trackpad flick is ignored
-  wheelAcc += dy;
-  if (Math.abs(wheelAcc) > 50) { const d = Math.sign(wheelAcc); wheelAcc = 0; wheelLock = now + 700; go(stop + d); }
+  const dy = e.deltaMode === 1 ? e.deltaY * 30 : e.deltaY;
+  setZoom(rig.zoomT * Math.exp(dy * .0015));
 }, { passive: false });
 addEventListener('keydown', e => {
   if (mode === 'boot' || mode === 'intro') return;
@@ -633,7 +616,24 @@ function damp3(v, vel, st, dt, maxSpeed) { // spring a vector to zero, with a sp
   vel.set((vel.x - o * px) * e, (vel.y - o * py) * e, (vel.z - o * pz) * e); v.set(tx + (cx + px) * e, ty + (cy + py) * e, tz + (cz + pz) * e);
 }
 function damp(cur, tgt, key, st, dt) { const o = 2 / st, x = o * dt, e = 1 / (1 + x + .48 * x * x + .235 * x * x * x), ch = cur - tgt, tmp = (sdv[key] + o * ch) * dt; sdv[key] = (sdv[key] - o * tmp) * e; return tgt + (ch + tmp) * e; }
-const earthLightTmp = new V3();
+const earthLightTmp = new V3(), _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion(), _Y = new V3(0, 1, 0);
+let spinRdt = .016;
+const SUNB = { id: 'sun', u: 0, uT: 0, uv: 0 };
+PL.forEach(p => { p.u = p.uT = p.uv = 0; p.own = p.spin.rotation.y; });
+function inspBody() { // the object a drag spins right now (null = orbit the camera: overview, belt)
+  if (mode === 'earth') return P.earth;
+  if (mode !== 'system') return null;
+  const id = STOPS[stop].id; return id === 'sun' ? SUNB : (P[id] || null);
+}
+// spin with inertia: while dragging the object follows the finger 1:1 (lightly filtered); on release the measured velocity decays smoothly,
+// and the body's own slow rotation (or a gentle drift for the Sun and the frozen Earth) carries on underneath
+function stepSpin(b, dt, drag, isCur) {
+  if (drag !== null) { b.uT += drag; const vdt = Math.max(Math.min(spinRdt, .25), .004); b.uv += (drag / vdt - b.uv) * (1 - Math.exp(-vdt * 40)); }
+  else { b.uT += b.uv * dt; b.uv *= Math.exp(-dt * 2.8); if (Math.abs(b.uv) < 1e-4) b.uv = 0; if (isCur && !REDUCED && (b === SUNB || (b === E && E.frozen && AP.sigVis < .3))) b.uT += dt * (b === SUNB ? .03 : .02); }
+  b.uv = clamp(b.uv, -9, 9);
+  b.u += (b.uT - b.u) * (1 - Math.exp(-dt * 24));
+  if (b.uT === 0 && Math.abs(b.u) < 1e-6) b.u = 0;
+}
 function tick(now) {
   requestAnimationFrame(tick);
   let dt = (now - last) / 1000; last = now; const rdt = dt; if (dt > .1) dt = .1; if (dt <= 0) return; t += dt;
@@ -653,17 +653,24 @@ function tick(now) {
     if (mode === 'dive') startHyper();
     hyper.update(dt); composer.render(dt); return;
   }
-  const sim = dt;
+  const sim = dt; spinRdt = rdt;
+  const earthM = mode === 'earth', cur = inspBody(), dsrc = (ptr && ptr.drag && ptr.ax !== undefined) ? ptr : ((rel && (rel.ax || rel.ay)) ? rel : null), drag = !!dsrc && mode !== 'dive'; rel = null;
+  const kx = 2 * PI / (1.2 * Math.min(W, 900)) * (earthM ? clamp(rig.zoom, .4, 1) : 1); // rad per pixel: a swipe of ~0.8 screen widths turns the object a full 360
+  let ddx = 0, ddy = 0; if (drag) { ddx = dsrc.ax; ddy = dsrc.ay; dsrc.ax = dsrc.ay = 0; }
+  stepSpin(SUNB, dt, cur === SUNB && drag ? ddx * kx : null, cur === SUNB);
   // orbits & spins
   sunMat.uniforms.t.value = t; rays1.material.rotation += dt * .012; rays2.material.rotation -= dt * .018;
   starMat.uniforms.t.value = t;
   for (const p of PL) {
     p.ang += p.w * sim; p.root.position.set(Math.cos(p.ang) * p.a, 0, -Math.sin(p.ang) * p.a);
-    if (!(p.id === 'earth' && E.frozen)) p.spin.rotation.y += p.ws * sim;
+    if (!(p.id === 'earth' && E.frozen)) p.own += p.ws * sim;
+    stepSpin(p, dt, cur === p && drag ? ddx * kx : null, cur === p);
+    if (p.u !== 0 || p.uT !== 0) { _qa.copy(p.tiltG.quaternion).invert().multiply(_qb.setFromAxisAngle(_Y, p.u)).multiply(p.tiltG.quaternion).multiply(_qb.setFromAxisAngle(_Y, p.own)); p.spin.quaternion.copy(_qa); } else p.spin.rotation.y = p.own;
     p.moons.forEach(m => { m.piv.rotation.y += m.w * sim; m.mesh.rotation.y += m.w * sim; });
     const L = earthLightTmp.copy(p.root.position).negate().normalize();
     if (p.atmo) { p.atmo.material.uniforms.center.value.copy(p.root.position); p.atmo.material.uniforms.L.value.copy(L); }
   }
+  sun.rotation.y = SUNB.u;
   E.clouds.rotation.y += dt * (E.frozen ? .002 : .006); earthU.cloudShift.value = -E.clouds.rotation.y / (2 * PI);
   belt.rotation.y += dt * .004;
   if (P.saturn.ringMat) P.saturn.ringMat.uniforms.center.value.copy(P.saturn.root.position);
@@ -685,18 +692,19 @@ function tick(now) {
     ui.fade.style.transition = 'none'; ui.fade.style.opacity = sstep(k, .6, .97);
     flare.update({ x: 0, y: 0 }, 0, W / H, dt);
   } else {
-    const earthM = mode === 'earth', pmin = earthM ? -1.25 : (stop === 0 ? .05 : -1.3), pmax = earthM ? 1.25 : 1.35;
-    // look / orbit: finger deltas steer a user offset; velocity carries on after release; everything is followed through critically damped springs
-    if (ptr && ptr.ax !== undefined && ptr.axis !== 'v') {
-      const kk = (earthM ? 2.2 : 3.2) / Math.max(H, 500) * (earthM ? Math.min(1, rig.zoom) : 1), dx = ptr.ax, dy = ptr.ay; ptr.ax = ptr.ay = 0;
-      rig.yUT -= dx * kk; rig.pUT += dy * kk;
-      const kv = 1 - Math.exp(-dt * 20); rig.vy += (-dx * kk / dt - rig.vy) * kv; rig.vp += (dy * kk / dt - rig.vp) * kv;
-    } else if (!ptr) {
-      rig.yUT += rig.vy * dt; rig.pUT += rig.vp * dt; const dec = Math.exp(-dt * 3.4); rig.vy *= dec; rig.vp *= dec;
-      if (!REDUCED && (mode === 'system' || mode === 'boot')) rig.yBT += dt * (stop === 0 ? .012 : .02); // gentle idle drift
+    const pmin = earthM ? -1.1 : (stop === 0 ? .05 : -1.3), pmax = earthM ? 1.1 : 1.35;
+    // inspect / orbit: finger pixels -> angle (one consistent mapping). Planets, the Sun and the Earth globe spin in place with inertia;
+    // the overview and the belt orbit the camera instead. Vertical drag tilts the view within limits.
+    const kp = kx * .8;
+    if (drag) { rig.pUT += ddy * kp; const vdt = Math.max(Math.min(rdt, .25), .004), kv = 1 - Math.exp(-vdt * 40); rig.vp += (ddy * kp / vdt - rig.vp) * kv; if (!cur) { rig.yUT -= ddx * kx; rig.vy += (-ddx * kx / vdt - rig.vy) * kv; } }
+    else if (!ptr || !ptr.drag) {
+      if (!cur) { rig.yUT += rig.vy * dt; rig.vy *= Math.exp(-dt * 2.6); } else rig.vy = 0;
+      rig.pUT += rig.vp * dt; rig.vp *= Math.exp(-dt * 3.2);
+      if (cur && !earthM && !ptr) { const r = Math.exp(-dt * .5); rig.pUT *= r; } // the tilt eases back to level
+      if (!REDUCED && !cur && (mode === 'system' || mode === 'boot')) rig.yBT += dt * (stop === 0 ? .012 : .02); // gentle idle drift
     }
     rig.vy = clamp(rig.vy, -7, 7); rig.vp = clamp(rig.vp, -7, 7);
-    { const lo = pmin - rig.pBT, hi = pmax - rig.pBT; if (rig.pUT < lo) { rig.pUT = lo; rig.vp = 0; } else if (rig.pUT > hi) { rig.pUT = hi; rig.vp = 0; } }
+    { const lo = Math.max(pmin - rig.pBT, cur && !earthM ? -.6 : -9), hi = Math.min(pmax - rig.pBT, cur && !earthM ? .6 : 9); if (rig.pUT < lo) { rig.pUT = lo; rig.vp = 0; } else if (rig.pUT > hi) { rig.pUT = hi; rig.vp = 0; } }
     const fly = !!rig.tr, sc = rig.sc;
     // the chase: position offset (relative to the moving anchor, so orbiting planets never lag), distance, yaw, pitch
     rig.anchor(_a1); damp3(rig.off, rig.ov, .62 * sc, dt, Math.max(rig.dist * 2.4, 5)); rig.target.copy(_a1).add(rig.off);
@@ -711,10 +719,7 @@ function tick(now) {
       if (rig.calm && !rig.arrived) { rig.arrived = true; if (mode === 'intro') { mode = 'system'; AP.mode = mode; go(0, { force: true, noFly: true }); } else rig.onArrive && rig.onArrive(); }
       if (eo < rig.base * .01 + .005 && eL < .012 && eY < .008 && eP < .008) { rig.tr = null; rig.calm = false; }
     }
-    // swipe-to-travel: the view leans with the finger (rubber-banded) and springs back if released early
-    navT = (ptr && ptr.axis === 'v' && mode === 'system') ? rubber(ptr.ly - ptr.y) : 0;
-    navS += (navT - navS) * (1 - Math.exp(-dt * (navT ? 16 : 9)));
-    const pull = Math.abs(navS) > .01 ? navS / NAV_MAX : 0;
+    const pull = 0;
     const ps = rig.pitch + pull * .05 + (REDUCED ? 0 : Math.sin(t * .17 + 2) * .008), cp = Math.cos(ps);
     const fl = REDUCED ? 0 : rig.dist * .0025, dd = rig.dist * (1 + pull * .07);
     camera.position.set(rig.target.x + dd * cp * Math.sin(rig.yaw) + Math.sin(t * .31) * fl, rig.target.y + dd * Math.sin(ps) + Math.sin(t * .23 + 1) * fl, rig.target.z + dd * cp * Math.cos(rig.yaw));
@@ -836,6 +841,6 @@ $('#snd').onclick = () => { sound.unlock(); sound.set(!sound.on); $('#snd').clas
 if (window.__apWant !== undefined) setTimeout(() => begin(window.__apWant), 0);
 document.addEventListener('visibilitychange', () => { if (sound.ctx) { if (document.hidden) sound.ctx.suspend(); else if (sound.on) sound.ctx.resume(); } });
 AP.go = i => go(i); AP.enterEarth = () => enterEarth(); AP.dive = () => dive(); AP.tapHyper = () => renderHyperCard(); AP.exitHyper = () => exitHyper();
-AP.get = () => ({ tx: rig.target.x, ty: rig.target.y, tz: rig.target.z, cx: camera.position.x, cy: camera.position.y, cz: camera.position.z, calls: AP.calls, tris: AP.tris, yaw: rig.yaw, pitch: rig.pitch, yawT: rig.yawT, nav: navS, mode, stop, card: cardOpen, tr: !!rig.tr, calm: rig.calm, dist: rig.dist, zoom: rig.zoom, sigVis: AP.sigVis, dpr, fps: AP.fps, intro: hyper && !!hyper.intro });
+AP.get = () => ({ hAz: hyper ? hyper.controls.getAzimuthalAngle() : 0, spinU: (inspBody() || {}).u,  tx: rig.target.x, ty: rig.target.y, tz: rig.target.z, cx: camera.position.x, cy: camera.position.y, cz: camera.position.z, calls: AP.calls, tris: AP.tris, yaw: rig.yaw, pitch: rig.pitch, yawT: rig.yawT, mode, stop, card: cardOpen, tr: !!rig.tr, calm: rig.calm, dist: rig.dist, zoom: rig.zoom, sigVis: AP.sigVis, dpr, fps: AP.fps, intro: hyper && !!hyper.intro });
 AP.faceSignal = () => { scene.updateMatrixWorld(); const a = signal.getWorldPosition(new V3()).sub(E.root.position).normalize(); rig.yaw = rig.yawT = rig.yB = rig.yBT = Math.atan2(a.x, a.z); rig.pitch = rig.pitchT = rig.pB = rig.pBT = Math.asin(a.y); rig.yU = rig.yUT = rig.pU = rig.pUT = 0; rig.vy = rig.vp = 0; sdv.yB = sdv.pB = sdv.yU = sdv.pU = 0; };
 boot();

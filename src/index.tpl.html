@@ -28,7 +28,7 @@
 <script>window.__V = '__V__';</script>
 </head>
 <body>
-<canvas id="gl" aria-label="The solar system in 3D. Scroll or swipe to travel between planets, drag to look around, tap a planet for its story."></canvas>
+<canvas id="gl" aria-label="The solar system in 3D. Use the arrows to travel between planets, drag to spin the object you are looking at, tap a planet for its story."></canvas>
 <div id="vig" aria-hidden="true"></div>
 <div id="frame" aria-hidden="true"><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i><b class="reticle"></b></div>
 <div id="labels"></div>
@@ -46,6 +46,8 @@
   <div class="ticks"></div>
   <button id="next" type="button" aria-label="Next destination"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button>
 </nav>
+<button id="sPrev" class="snav l" type="button" aria-label="Previous destination"><i><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></i><span></span></button>
+<button id="sNext" class="snav r" type="button" aria-label="Next destination"><i><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></i><span></span></button>
 <p id="hint" aria-live="polite"></p>
 
 <aside id="card" aria-live="polite"><button id="cardX" type="button" aria-label="Close">×</button><div id="cardIn"></div></aside>
@@ -66,7 +68,7 @@
       <button id="goQuiet" class="lnk" type="button">Enter without sound</button>
     </div>
   </div>
-  <p class="ld-foot">Drag to look around · Scroll or swipe to travel · Tap a planet</p>
+  <p class="ld-foot">Drag to spin · Arrows to travel · Tap a planet</p>
   <p class="ld-nogl">This browser couldn’t start 3D graphics (WebGL 2). Try opening the link in Safari or Chrome.</p>
 </div>
 <script>
