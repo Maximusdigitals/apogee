@@ -136,11 +136,11 @@ body.ready #loader { background: radial-gradient(ellipse 80% 60% at 50% 50%, rgb
 #loader h1 { margin: 22px 0 0; font-weight: 200; font-size: clamp(54px, 13vw, 170px); line-height: 1; letter-spacing: .3em; padding-left: .3em; text-transform: uppercase;
   background: linear-gradient(180deg, #fff 30%, rgba(255, 255, 255, .55)); -webkit-background-clip: text; background-clip: text; color: transparent; opacity: 0; animation: up 2s .35s var(--ease) forwards; }
 @keyframes up { from { opacity: 0; transform: translateY(14px); filter: blur(6px); } to { opacity: 1; transform: none; filter: blur(0); } }
-.ld-load { margin: 46px auto 0; width: 180px; transition: opacity .8s; }
+.ld-load { margin: 46px auto 0; width: 180px; transition: opacity .8s; pointer-events: none; }
 .ld-bar { height: 1px; background: rgba(255, 255, 255, .12); overflow: hidden; }
 .ld-bar i { display: block; height: 100%; background: var(--ink); transform: scaleX(0); transform-origin: 0 50%; transition: transform .4s var(--ease); }
 .ld-pct { margin: 14px 0 0; display: flex; justify-content: space-between; font: 400 10px/1 var(--mono); letter-spacing: .2em; text-transform: uppercase; color: var(--dim); }
-.ld-go { margin-top: -30px; display: flex; flex-direction: column; align-items: center; gap: 18px; opacity: 0; pointer-events: none; transform: translateY(10px); transition: opacity 1.2s .3s var(--ease), transform 1.2s .3s var(--ease); }
+.ld-go { position: relative; z-index: 2; margin-top: -30px; display: flex; flex-direction: column; align-items: center; gap: 18px; opacity: 0; pointer-events: none; transform: translateY(10px); transition: opacity 1.2s .3s var(--ease), transform 1.2s .3s var(--ease); }
 body.ready .ld-load { opacity: 0; } body.ready .ld-go { opacity: 1; pointer-events: auto; transform: none; }
 .btn { display: inline-flex; align-items: center; gap: 22px; height: 54px; padding: 0 26px 0 30px; border: 1px solid rgba(255, 255, 255, .28); border-radius: 27px; font: 400 11px/1 var(--mono); letter-spacing: .3em; text-transform: uppercase; background: rgba(255, 255, 255, .03); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); transition: border-color .5s, background .5s; }
 .btn i { position: relative; width: 22px; height: 1px; background: currentColor; transition: width .5s var(--ease); }
@@ -186,6 +186,16 @@ body.nogl .ld-nogl { display: block; } body.nogl .ld-load, body.nogl .ld-go { di
   #card.hl { background: linear-gradient(180deg, rgba(6, 24, 22, .92), rgba(3, 10, 11, .94)); }
   #pop { background: rgba(8, 12, 18, .9); }
   #earthBack, #hyperBack { background: rgba(6, 9, 14, .72); }
-  #vig { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01s !important; transition-duration: .2s !important; } }
+
+/* feedback: pressed states, tap ripple, hover glow (transform / opacity only) */
+#ripple { position: fixed; left: 0; top: 0; width: 44px; height: 44px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .7); pointer-events: none; opacity: 0; will-change: transform, opacity; }
+#ripple.go::after { content: ''; position: absolute; inset: -1px; border-radius: 50%; border: 1px solid rgba(151, 252, 228, .9); animation: rip .6s cubic-bezier(.2, .7, .2, 1) forwards; }
+@keyframes rip { from { transform: scale(.25); opacity: .95; } to { transform: scale(1.5); opacity: 0; } }
+.btn, .c-cta, #earthBack, #hyperBack, #prev, #next, .tick, .plabel, .elabel, #snd, .c-more { transition-property: transform, opacity, border-color, background, color; }
+.btn:active, .c-cta:active, #earthBack:active, #hyperBack:active { transform: scale(.965); }
+#prev:active:not(:disabled), #next:active:not(:disabled) { transform: scale(.88); border-color: var(--mint); }
+.tick:active i { background: var(--mint); } .plabel:active, .elabel.city:active { opacity: .7; }
+#card, #pop { transition-property: opacity, transform, visibility; }
+@media (hover: hover) { #card:hover { border-color: rgba(255, 255, 255, .16); } .elabel.city:hover span { color: #fff; } .elabel.city:hover i { box-shadow: 0 0 0 5px rgba(151, 252, 228, .22); background: var(--mint); } }
