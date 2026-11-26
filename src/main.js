@@ -26,7 +26,7 @@ try {
 } catch (e) { document.body.classList.add('nogl'); AP.mode = 'nogl'; throw e; }
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
 const ANISO = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-const DPR_MAX = Math.min(window.devicePixelRatio || 1, MOBILE ? 1.6 : 1.75);
+const DPR_MAX = Math.min(window.devicePixelRatio || 1, MOBILE ? 1.5 : 1.75), DPR_MIN = MOBILE ? .9 : 1;
 let dpr = DPR_MAX, W = 1, H = 1;
 
 const scene = new THREE.Scene();
@@ -47,17 +47,26 @@ function loadImg(src) {
     img.onerror = () => rej(new Error('img ' + src)); img.src = src;
   });
 }
+// Decoding happens off-thread at any time, but the GPU upload (initTexture + mipmaps) is held until the camera is idle
+// and spaced out, so a flight or a drag never shares a frame with a big texture upload.
+const pendingTex = []; let lastUp = 0;
+function applyTex(j) {
+  const { s, lvl, t } = j; s.pend = null;
+  if (RANK[s.lvl] >= RANK[lvl]) { t.dispose(); return; }
+  renderer.initTexture(t);
+  const old = s.tex; s.tex = t; s.lvl = lvl; s.fns.forEach(f => f(t));
+  if (old) setTimeout(() => old.dispose(), 1500);
+}
 async function upgrade(name, lvl) {
-  const s = texSlots[name]; if (!s || RANK[s.lvl] >= RANK[lvl] || s.loading === lvl) return;
+  const s = texSlots[name]; if (!s || RANK[s.lvl] >= RANK[lvl] || s.loading === lvl || s.pend === lvl) return;
   s.loading = lvl;
   try {
     const img = await loadImg(`tex/${name}_${lvl}.jpg?v=${VER}`);
     if (RANK[s.lvl] >= RANK[lvl]) return;
     const t = new THREE.Texture(img); t.colorSpace = s.srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; t.anisotropy = ANISO;
     t.wrapS = s.wrap || THREE.ClampToEdgeWrapping; if (s.wrap) t.wrapT = s.wrap; t.needsUpdate = true;
-    renderer.initTexture(t);
-    const old = s.tex; s.tex = t; s.lvl = lvl; s.fns.forEach(f => f(t));
-    if (old) setTimeout(() => old.dispose(), 1500);
+    const job = { s, lvl, t };
+    if (!AP.loLoaded) applyTex(job); else { s.pend = lvl; pendingTex.push(job); }
   } catch (e) { console.warn(e.message); } finally { if (s.loading === lvl) s.loading = null; }
 }
 const hiQueue = []; let hiBusy = 0;
@@ -302,13 +311,13 @@ const rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, sample
 const composer = new EffectComposer(renderer, rt);
 const renderPass = new RenderPass(scene, camera); composer.addPass(renderPass);
 const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), .9, .55, .92); composer.addPass(bloom);
-if (MOBILE) { const ss = bloom.setSize.bind(bloom); bloom.setSize = (w, h) => ss(Math.round(w * .6), Math.round(h * .6)); }
+if (MOBILE) { const ss = bloom.setSize.bind(bloom); bloom.setSize = (w, h) => ss(Math.round(w * .5), Math.round(h * .5)); }
 composer.addPass(new OutputPass());
 const flare = new Flare();
 let hyper = null; const getHyper = () => { if (!hyper) { hyper = new Hyper(renderer, canvas, MOBILE); hyper.resize(W, H, dpr); try { renderer.compileAsync ? renderer.compileAsync(hyper.scene, hyper.cam).catch(() => { }) : renderer.compile(hyper.scene, hyper.cam); } catch (e) { } } return hyper; };
 
 // ---------------------------------------------------------------- camera rig
-const rig = { target: new V3(), dist: 2600, yaw: .9, pitch: .7, anchor: v => v.set(0, 0, 0), tr: null, vy: 0, vp: 0, zoom: 1, zoomT: 1 };
+const rig = { target: new V3(), dist: 2600, yaw: .9, pitch: .7, anchor: v => v.set(0, 0, 0), tr: null, vy: 0, vp: 0, yawT: .9, pitchT: .7, zoom: 1, zoomT: 1 };
 const vo = { x: 0, y: 0, tx: 0, ty: 0 };
 let FOV = 42;
 function fovs() { const v = FOV * DEG, h = 2 * Math.atan(Math.tan(v / 2) * camera.aspect); return Math.min(v, h); }
@@ -324,12 +333,12 @@ function frame(i) {
   const f = portrait() ? .5 : .4, R = p.ring ? p.r * 2.3 : p.r;
   return { anchor: v => v.copy(p.root.position), dist: fitDist(R, f), yaw: yaw0 + .95, pitch: p.ring ? .3 : .12 };
 }
-function flyTo(fr, dur) {
+function flyTo(fr, dur, m) {
   const from = { pos: rig.target.clone(), dist: rig.dist, yaw: rig.yaw, pitch: rig.pitch };
   const toPos = fr.anchor(new V3()), travel = from.pos.distanceTo(toPos);
   const mid = Math.max(from.dist, fr.dist, travel * .55), arc = Math.max(0, Math.log(mid / Math.sqrt(from.dist * fr.dist)) * (travel > 1 ? .85 : 0));
   dur = dur || (REDUCED ? .9 : clamp(2 + .55 * Math.log(1 + travel / 6), 2, 3.8));
-  rig.tr = { t: 0, d: dur, from, to: fr, arc, dyaw: wrapPI(fr.yaw - from.yaw) }; rig.vy = rig.vp = 0; rig.zoomT = 1;
+  rig.tr = { t: 0, d: dur, from, to: fr, arc, m: m || 0, dyaw: wrapPI(fr.yaw - from.yaw) }; rig.vy = rig.vp = 0; rig.zoomT = 1;
   return dur;
 }
 
@@ -338,7 +347,7 @@ const ui = {
   hud: $('#hud'), card: $('#card'), cardIn: $('#cardIn'), rail: $('#rail'), labels: $('#labels'), hint: $('#hint'), tele: $('#tele'),
   pop: $('#pop'), earthUI: $('#earthUI'), hyperUI: $('#hyperUI'), fade: $('#fade'), loader: $('#loader')
 };
-let stop = 0, mode = 'boot', cardOpen = false;
+let stop = 0, mode = 'boot', cardOpen = false, cardFull = false;
 // rail
 STOPS.forEach((s, i) => {
   const b = document.createElement('button'); b.className = 'tick'; b.dataset.i = i; b.setAttribute('aria-label', s.name);
@@ -370,9 +379,9 @@ function renderCard(i) {
     <div class="c-body"><dl class="c-stats">${s.stats.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>
     <ol class="c-facts">${s.facts.map(f => `<li>${f}</li>`).join('')}</ol></div>
     ${s.enter ? '<button class="c-cta" type="button" id="enterEarth"><span>Enter Earth</span><i></i></button>' : ''}`;
-  ui.card.classList.remove('hl', 'open');
+  ui.card.classList.remove('hl', 'open'); cardFull = false;
   const ee = $('#enterEarth'); if (ee) ee.onclick = () => enterEarth();
-  ui.cardIn.querySelector('.c-more').onclick = () => { ui.card.classList.toggle('open'); sound.blip(820); };
+  ui.cardIn.querySelector('.c-more').onclick = () => { cardFull = ui.card.classList.toggle('open'); sound.blip(820); };
   openCard();
 }
 function renderHyperCard() {
@@ -382,12 +391,12 @@ function renderHyperCard() {
     <div class="c-body"><dl class="c-stats">${h.facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>
     <div class="c-secs">${h.sections.map(([k, v]) => `<section><h4>${k}</h4><p>${v}</p></section>`).join('')}</div></div>
     <a class="c-cta" href="${h.url}" target="_blank" rel="noopener"><span>hyperliquid.xyz</span><i></i></a>`;
-  ui.card.classList.add('hl'); ui.card.classList.remove('open');
-  ui.cardIn.querySelector('.c-more').onclick = () => { ui.card.classList.toggle('open'); sound.blip(820); };
+  ui.card.classList.add('hl'); ui.card.classList.remove('open'); cardFull = false;
+  ui.cardIn.querySelector('.c-more').onclick = () => { cardFull = ui.card.classList.toggle('open'); sound.blip(820); };
   openCard(); sound.chime();
 }
 function openCard() { cardOpen = true; ui.card.classList.add('on'); ui.cardIn.scrollTop = 0; }
-function closeCard() { cardOpen = false; ui.card.classList.remove('on', 'open'); }
+function closeCard() { cardOpen = false; cardFull = false; ui.card.classList.remove('on', 'open'); }
 $('#cardX').onclick = () => { closeCard(); sound.blip(500); };
 
 function setTele(i) {
@@ -400,16 +409,20 @@ function setTele(i) {
 function go(i, opts = {}) {
   i = clamp(i, 0, STOPS.length - 1);
   if (mode === 'hyper' || mode === 'dive') return;
+  if ((mode === 'intro' || mode === 'boot') && !opts.force) return;
+  // one flight at a time: ignore requests until the current flight is mostly done, then retarget with a head start
+  if (mode === 'system' && rig.tr && !opts.force) { if (rig.tr.t < rig.tr.d * .6) return; opts = Object.assign({}, opts, { m: Math.max(opts.m || 0, .5) }); }
   if (mode === 'earth') exitEarth(true);
-  if (i === stop && !opts.force && !rig.tr) return;
+  if (i === stop && !opts.force && (!rig.tr || mode === 'system')) return;
   stop = i; AP.stop = i; mode = 'system'; AP.mode = mode;
-  if (opts.noFly) { rig.anchor = frame(i).anchor; rig.base = rig.dist; rig.zoom = rig.zoomT = 1; } else { const dur = flyTo(frame(i)); sound.whoosh(Math.min(dur, 2.8)); }
+  if (opts.noFly) { rig.anchor = frame(i).anchor; rig.base = rig.dist; rig.zoom = rig.zoomT = 1; } else { const dur = flyTo(frame(i), undefined, opts.m); sound.whoosh(Math.min(dur, 2.8)); }
   closeCard(); ui.pop.classList.remove('on');
   document.querySelectorAll('.tick').forEach((b, k) => b.classList.toggle('on', k === i));
   $('#prev').disabled = i === 0; $('#next').disabled = i === STOPS.length - 1;
   document.body.dataset.stop = STOPS[i].id; setTele(i);
   const s = STOPS[i]; const pid = s.id;
   if (texSlots[pid]) queueHi([pid], true);
+  [i - 1, i + 1].forEach(j => { const nid = STOPS[j] && STOPS[j].id; if (nid && texSlots[nid]) queueHi([nid]); }); // next/previous stop's imagery is ready before you swipe
   if (pid === 'earth') queueHi(['earth', 'night', 'clouds', 'spec', 'normal'], true);
   if (pid === 'mars' || pid === 'jupiter' || pid === 'saturn' || pid === 'earth' || pid === 'neptune' || pid === 'uranus') queueHi(['moon']);
   rig.onArrive = () => { if (stop === i && mode === 'system') renderCard(i); };
@@ -425,7 +438,7 @@ function enterEarth() {
   scene.updateMatrixWorld(); const a = E.spin.localToWorld(ll(8, 8)).sub(E.root.position).normalize();
   const fr = { anchor: v => v.copy(E.root.position), dist: fitDist(1, portrait() ? .86 : .74), yaw: Math.atan2(a.x, a.z), pitch: clamp(Math.asin(a.y), -1, 1) };
   flyTo(fr, REDUCED ? 1 : 2.6); rig.earthBase = fr.dist;
-  rig.onArrive = () => { setHint(MOBILE ? 'Drag to turn the Earth  ·  Find the green signal' : 'Drag to turn the Earth  ·  Scroll to zoom  ·  Find the green signal'); };
+  rig.onArrive = () => { setTimeout(() => { if (mode === 'earth' && !hyper && !ptr) getHyper(); }, 1200); setHint(MOBILE ? 'Drag to turn the Earth  ·  Find the green signal' : 'Drag to turn the Earth  ·  Scroll to zoom  ·  Find the green signal'); };
   ui.earthUI.classList.add('on');
 }
 function exitEarth(silent) {
@@ -467,40 +480,52 @@ function exitHyper() {
 $('#hyperBack').onclick = () => { sound.blip(500); exitHyper(); };
 
 // ---------------------------------------------------------------- input
-let ptr = null, pinch = null, wheelAcc = 0, wheelLock = 0, lastWheel = 0;
+let ptr = null, pinch = null, wheelAcc = 0, wheelLock = 0, lastWheel = 0, lastNav = 0;
+const NAV_MAX = 90, rubber = d => Math.sign(d) * NAV_MAX * (1 - Math.exp(-Math.abs(d) / 150));
+const PB = { passive: true };
+// Pointer handlers only record; every move is applied once per frame inside tick() (coalesced), so input never fights rendering.
 canvas.addEventListener('pointerdown', e => {
   if (mode === 'hyper') { ptr = { x: e.clientX, y: e.clientY, t: performance.now(), moved: 0 }; return; }
   if (pinch) return;
   try { canvas.setPointerCapture(e.pointerId); } catch (_) { }
-  ptr = { id: e.pointerId, x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, t: performance.now(), moved: 0, axis: null, type: e.pointerType };
-});
+  ptr = { id: e.pointerId, x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, t: performance.now(), moved: 0, axis: null, type: e.pointerType, ax: 0, ay: 0, px: 0, py: 0, hist: [] };
+}, PB);
 canvas.addEventListener('pointermove', e => {
-  if (!ptr || (ptr.id !== undefined && e.pointerId !== ptr.id) || pinch) return;
-  const dx = e.clientX - ptr.lx, dy = e.clientY - ptr.ly; ptr.lx = e.clientX; ptr.ly = e.clientY;
-  ptr.moved = Math.max(ptr.moved, Math.hypot(e.clientX - ptr.x, e.clientY - ptr.y));
-  if (mode === 'hyper' || mode === 'dive' || mode === 'boot' || mode === 'intro') return;
-  const touch = ptr.type === 'touch';
-  if (touch && !ptr.axis && ptr.moved > 10) ptr.axis = (mode === 'system' && Math.abs(e.clientY - ptr.y) > Math.abs(e.clientX - ptr.x) * 1.2) ? 'v' : 'free';
-  if (touch && ptr.axis === 'v') return; // vertical swipe = travel, handled on release
-  const k = (mode === 'earth' ? 2.2 : 3.2) / Math.max(H, 500) * (mode === 'earth' ? Math.min(1, rig.zoom) : 1);
-  rig.vy = -dx * k * 60; rig.vp = dy * k * 60;
+  const p = ptr; if (!p || (p.id !== undefined && e.pointerId !== p.id) || pinch) return;
+  if (p.ax === undefined) return; // hyper mode: OrbitControls does the dragging
+  const dx = e.clientX - p.lx, dy = e.clientY - p.ly; p.lx = e.clientX; p.ly = e.clientY;
+  const tdx = e.clientX - p.x, tdy = e.clientY - p.y; p.moved = Math.max(p.moved, Math.hypot(tdx, tdy));
+  if (mode === 'dive' || mode === 'boot' || mode === 'intro') return;
+  const touch = p.type === 'touch';
+  if (touch && !p.axis && p.moved > 10) {
+    p.axis = (mode === 'system' && Math.abs(tdy) > Math.abs(tdx) * 1.6) ? 'v' : 'free';
+    if (p.axis === 'free') { p.ax += p.px; p.ay += p.py; } p.px = p.py = 0;
+  }
+  if (p.axis === 'v') { const n = p.hist; n.push(e.timeStamp, e.clientY); if (n.length > 12) n.splice(0, 2); return; }
+  if (touch && !p.axis) { p.px += dx; p.py += dy; return; } // direction not decided yet
   if (rig.tr && mode === 'system') return;
-  rig.yaw -= dx * k; rig.pitch = clamp(rig.pitch + dy * k, mode === 'earth' ? -1.25 : (stop === 0 ? .05 : -1.3), mode === 'earth' ? 1.25 : 1.35);
-});
+  p.ax += dx; p.ay += dy;
+}, PB);
 const endPtr = e => {
   if (!ptr) return; const p = ptr; ptr = null;
   const dt = performance.now() - p.t;
+  if (p.ax === undefined) { if (p.moved < 8 && dt < 500) tap(e.clientX, e.clientY); return; }
   if (p.moved < 8 && dt < 500) { tap(e.clientX, e.clientY); return; }
   if (p.type === 'touch' && p.axis === 'v' && mode === 'system') {
-    const dy = e.clientY - p.y; if (Math.abs(dy) > 40) go(stop + (dy < 0 ? 1 : -1));
+    const dy = e.clientY - p.y, dx = e.clientX - p.x, ad = Math.abs(dy), now = performance.now();
+    // velocity over the last ~110 ms of the swipe
+    const h = p.hist; let v = 0; if (h.length >= 4) { const t1 = h[h.length - 2], y1 = h[h.length - 1]; let k = h.length - 4; while (k > 0 && t1 - h[k] < 110) k -= 2; const t0 = h[k], y0 = h[k + 1]; v = t1 > t0 ? (y1 - y0) / (t1 - t0) : 0; }
+    const dirOK = ad > Math.abs(dx) * 1.6 && (Math.sign(v) === Math.sign(dy) || v === 0);
+    const commit = dirOK && (ad > 64 || (Math.abs(v) > .45 && ad > 24));
+    if (commit && now - lastNav > 350) { lastNav = now; go(stop + (dy < 0 ? 1 : -1), { m: clamp(Math.abs(v) * .45, 0, .6) }); }
   }
 };
-canvas.addEventListener('pointerup', endPtr); canvas.addEventListener('pointercancel', () => { ptr = null; });
+canvas.addEventListener('pointerup', endPtr, PB); canvas.addEventListener('pointercancel', () => { ptr = null; }, PB);
 // pinch zoom (Earth view and overview)
-canvas.addEventListener('touchstart', e => { if (e.touches.length === 2 && mode !== 'hyper') { ptr = null; pinch = { d: Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY), z: rig.zoomT }; } }, { passive: true });
-canvas.addEventListener('touchmove', e => { if (pinch && e.touches.length === 2) { const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); setZoom(pinch.z * pinch.d / d); } }, { passive: true });
-canvas.addEventListener('touchend', e => { if (e.touches.length < 2) pinch = null; }, { passive: true });
-document.addEventListener('touchmove', e => { if (e.target === canvas) e.preventDefault(); }, { passive: false });
+canvas.addEventListener('touchstart', e => { if (e.touches.length === 2 && mode !== 'hyper') { ptr = null; pinch = { d: Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY), z: rig.zoomT }; } }, PB);
+canvas.addEventListener('touchmove', e => { if (pinch && e.touches.length === 2) { const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); setZoom(pinch.z * pinch.d / d); } }, PB);
+canvas.addEventListener('touchend', e => { if (e.touches.length < 2) pinch = null; }, PB);
+document.addEventListener('gesturestart', e => e.preventDefault(), { passive: false }); // iOS: no page pinch-zoom (the canvas is touch-action: none)
 function setZoom(z) {
   const lo = mode === 'earth' ? (AP.sigNear ? .3 : .62) : .55;
   rig.zoomT = clamp(z, lo, mode === 'earth' ? 1.25 : 1.6);
@@ -523,7 +548,10 @@ addEventListener('keydown', e => {
   if (['ArrowUp', 'ArrowLeft', 'PageUp'].includes(e.key)) { e.preventDefault(); go(stop - 1); }
 });
 const tmpV = new V3(), tmpV2 = new V3();
-function screenOf(v) { tmpV.copy(v).project(camera); return { x: (tmpV.x * .5 + .5) * W, y: (-tmpV.y * .5 + .5) * H, z: tmpV.z }; }
+const SO = { x: 0, y: 0, z: 0 }; // shared result: callers read it immediately
+function screenOf(v) { tmpV.copy(v).project(camera); SO.x = (tmpV.x * .5 + .5) * W; SO.y = (-tmpV.y * .5 + .5) * H; SO.z = tmpV.z; return SO; }
+const _toPos = new V3(), _right = new V3(), _up = new V3(), _camL = new V3(), _cs = new V3(), _camDir = new V3(), _w = new V3(), _n = new V3(), _ZERO = { x: 0, y: 0 };
+const _bm = new THREE.Matrix4(), _bq = new THREE.Quaternion(), _be = new THREE.Euler(), _lookM = new THREE.Matrix4(), _qt = new THREE.Quaternion(), _up0 = new V3(0, 1, 0), _ndc = { x: 0, y: 0 }, _sv = { v: 0, ndc: _ndc };
 function tap(x, y) {
   if (mode === 'hyper') {
     if (hyper && !hyper.intro && hyper.pick(new THREE.Vector2(x / W * 2 - 1, -(y / H) * 2 + 1))) renderHyperCard(); else if (cardOpen && MOBILE) closeCard();
@@ -543,20 +571,22 @@ function tap(x, y) {
     const d = camera.position.distanceTo(tmpV2), pr = b.r / (d * tf) * H / 2, dd = Math.hypot(s.x - x, s.y - y);
     if (dd < Math.max(pr * 1.15, 26) && dd - pr < bd) { bd = dd - pr; best = b; }
   }
-  if (best) { if (best.stop === stop) { if (!cardOpen) renderCard(stop); else if (MOBILE) ui.card.classList.toggle('open'); } else { sound.blip(760); go(best.stop); } }
+  if (best) { if (best.stop === stop) { if (!cardOpen) renderCard(stop); else if (MOBILE) cardFull = ui.card.classList.toggle('open'); } else { sound.blip(760); go(best.stop); } }
 }
 
 // ---------------------------------------------------------------- resize
-function resize() {
-  W = innerWidth; H = innerHeight;
-  const vv = window.visualViewport; if (vv && MOBILE) { W = Math.round(vv.width); H = Math.round(vv.height); }
+function resize(force) {
+  let nw = innerWidth, nh = innerHeight;
+  const vv = window.visualViewport; if (vv && MOBILE) { nw = Math.round(vv.width); nh = Math.round(vv.height); }
+  if (!force && nw === W && nh === H) return; // ignore no-op viewport events (pinch, URL-bar wobble)
+  W = nw; H = nh;
   FOV = W / H < .8 ? 54 : 42; camera.fov = FOV; camera.aspect = W / H;
   renderer.setPixelRatio(dpr); renderer.setSize(W, H, false); composer.setPixelRatio(dpr); composer.setSize(W, H);
   starMat.uniforms.dpr.value = dpr; camera.updateProjectionMatrix();
   if (hyper) hyper.resize(W, H, dpr);
   if (mode === 'system' && !rig.tr) { const f = frame(stop); if (STOPS[stop].id === 'overview') rig.dist = f.dist; }
 }
-addEventListener('resize', resize); window.visualViewport?.addEventListener('resize', resize);
+addEventListener('resize', () => resize()); window.visualViewport?.addEventListener('resize', () => resize());
 
 // ---------------------------------------------------------------- per-frame
 const occl = (from, to, cs, r) => { // segment from->to intersects sphere?
@@ -566,28 +596,36 @@ const occl = (from, to, cs, r) => { // segment from->to intersects sphere?
 };
 const sunPts = [new V3(), new V3(), new V3(), new V3(), new V3()];
 function sunVisibility() {
-  const s = screenOf(new V3()); if (s.z > 1) return { v: 0, s };
-  const ndc = { x: tmpV.x, y: tmpV.y }; if (Math.abs(ndc.x) > 1.3 || Math.abs(ndc.y) > 1.3) return { v: 0, ndc };
-  const right = new V3().setFromMatrixColumn(camera.matrixWorld, 0), up = new V3().setFromMatrixColumn(camera.matrixWorld, 1);
+  const s = screenOf(_n.set(0, 0, 0)); if (s.z > 1) { _sv.v = 0; _ndc.x = _ndc.y = 0; return _sv; }
+  const ndc = _ndc; ndc.x = tmpV.x; ndc.y = tmpV.y; if (Math.abs(ndc.x) > 1.3 || Math.abs(ndc.y) > 1.3) { _sv.v = 0; return _sv; }
+  const right = _right.setFromMatrixColumn(camera.matrixWorld, 0), up = _up.setFromMatrixColumn(camera.matrixWorld, 1);
   sunPts[0].set(0, 0, 0); sunPts[1].copy(right).multiplyScalar(SUN_R * .7); sunPts[2].copy(right).multiplyScalar(-SUN_R * .7); sunPts[3].copy(up).multiplyScalar(SUN_R * .7); sunPts[4].copy(up).multiplyScalar(-SUN_R * .7);
-  let vis = 0; const cp = camera.position, cs = new V3();
+  let vis = 0; const cp = camera.position, cs = _cs;
   for (const sp of sunPts) {
     let hit = false;
     for (const b of bodies) { b.obj.getWorldPosition(cs); if (occl(cp, sp, cs, b.r * (b.p && b.p.id === 'earth' ? 1.02 : 1))) { hit = true; break; } }
     if (!hit) vis += .2;
   }
   const edge = 1 - sstep(Math.max(Math.abs(ndc.x), Math.abs(ndc.y)), .95, 1.3);
-  return { v: vis * edge, ndc };
+  _sv.v = vis * edge; return _sv;
 }
 
-let last = performance.now(), tAcc = 0, frames = 0, fpsT = 0, slow = 0, t = 0;
+let last = performance.now(), frames = 0, fpsT = 0, t = 0, perfT = 0, perfN = 0, perfSlow = 0, perfCool = 0, navT = 0, navS = 0;
+const sdv = { yaw: 0, pitch: 0 };
+// critically damped spring (smooth-damp): continuous velocity, no overshoot, frame-rate independent
+function damp(cur, tgt, key, st, dt) { const o = 2 / st, x = o * dt, e = 1 / (1 + x + .48 * x * x + .235 * x * x * x), ch = cur - tgt, tmp = (sdv[key] + o * ch) * dt; sdv[key] = (sdv[key] - o * tmp) * e; return tgt + (ch + tmp) * e; }
 const earthLightTmp = new V3();
 function tick(now) {
   requestAnimationFrame(tick);
   let dt = (now - last) / 1000; last = now; const rdt = dt; if (dt > .1) dt = .1; if (dt <= 0) return; t += dt;
   frames++; fpsT += rdt; if (fpsT > 1) { AP.fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
-  // adaptive resolution: step down gently if a phone struggles
-  if (AP.ready && mode !== 'boot') { tAcc += dt; if (dt > 1 / 38) slow++; if (tAcc > 2.5) { if (slow > tAcc * 22 && dpr > 1.01) { dpr = Math.max(1, dpr - .2); resize(); } tAcc = 0; slow = 0; } }
+  // adaptive resolution: reacts within ~1.2 s; ignores tab-switch gaps and the cool-down right after a change
+  if (AP.ready && mode !== 'boot' && rdt < .25) {
+    if (perfCool > 0) perfCool -= rdt;
+    else { perfT += rdt; perfN++; if (rdt > 1 / 40) perfSlow++; if (perfT > 1.2) { if (perfN >= 6 && perfSlow > perfN * .45 && dpr > DPR_MIN + .01) { dpr = Math.max(DPR_MIN, dpr - .15); resize(true); perfCool = 1; } perfT = perfN = perfSlow = 0; } }
+  }
+  // deferred texture uploads: one at a time, only while the camera is at rest
+  if (pendingTex.length && now - lastUp > 160 && !rig.tr && !ptr && mode !== 'dive' && mode !== 'intro' && mode !== 'hyper') { applyTex(pendingTex.shift()); lastUp = now; }
 
   if (mode === 'hyper' || (mode === 'dive' && diveS && diveS.t >= diveS.d)) {
     if (mode === 'dive') startHyper();
@@ -609,7 +647,7 @@ function tick(now) {
   if (P.saturn.ringMat) P.saturn.ringMat.uniforms.center.value.copy(P.saturn.root.position);
   // spin the asteroid cluster you fly into
   if (STOPS[stop].id === 'belt' && beltMesh) {
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+    const m = _bm, q = _bq, e = _be;
     clusterData.forEach((c, i) => { e.set(c.e.x + t * c.w, c.e.y + t * c.w * .7, c.e.z); q.setFromEuler(e); m.compose(c.p, q, c.s); beltMesh.setMatrixAt(i, m); });
     beltMesh.instanceMatrix.clearUpdateRanges?.(); beltMesh.instanceMatrix.addUpdateRange?.(0, CL * 16); beltMesh.instanceMatrix.needsUpdate = true;
   }
@@ -619,44 +657,61 @@ function tick(now) {
     const D = diveS; D.t += dt; const k = Math.min(1, D.t / D.d), e = k * k * (3 - 2 * k), ein = k * k * k;
     D.S = signal.getWorldPosition(D.S || new V3());
     camera.position.lerpVectors(D.p0, tmpV.copy(D.S).addScaledVector(D.n, .015), ein * .985 + e * .015);
-    const look = new THREE.Matrix4().lookAt(camera.position, D.S, new V3(0, 1, 0)); const qt = new THREE.Quaternion().setFromRotationMatrix(look);
+    const qt = _qt.setFromRotationMatrix(_lookM.lookAt(camera.position, D.S, _up0));
     camera.quaternion.slerpQuaternions(D.q0, qt, Math.min(1, e * 1.6));
     camera.fov = D.f0 + 22 * ein; camera.updateProjectionMatrix();
     ui.fade.style.transition = 'none'; ui.fade.style.opacity = sstep(k, .6, .97);
     flare.update({ x: 0, y: 0 }, 0, W / H, dt);
   } else {
     if (rig.tr) {
-      const T = rig.tr; T.t += dt; const k = Math.min(1, T.t / T.d), e = ease(k);
-      const toPos = T.to.anchor(new V3());
+      const T = rig.tr; T.t += dt; const k = Math.min(1, T.t / T.d), e0 = ease(k), e = T.m ? lerp(e0, 1 - Math.pow(1 - k, 3), T.m) : e0;
+      const toPos = T.to.anchor(_toPos);
       rig.target.lerpVectors(T.from.pos, toPos, e);
       rig.dist = Math.exp(lerp(Math.log(T.from.dist), Math.log(T.to.dist), e) + T.arc * Math.sin(PI * e));
       rig.yaw = T.from.yaw + T.dyaw * e; rig.pitch = lerp(T.from.pitch, T.to.pitch, e);
+      rig.yawT = rig.yaw; rig.pitchT = rig.pitch; rig.yv = rig.pv = 0; sdv.yaw = sdv.pitch = 0; navT = 0;
+      if (ptr) ptr.ax = ptr.ay = 0;
       if (k >= 1) { rig.tr = null; rig.anchor = T.to.anchor; rig.base = T.to.dist; rig.zoom = rig.zoomT = 1; if (mode === 'intro') { mode = 'system'; AP.mode = mode; go(0, { force: true, noFly: true }); } else rig.onArrive && rig.onArrive(); }
     } else {
       rig.anchor(rig.target);
-      if (!ptr) { rig.yaw += rig.vy * dt; rig.pitch = clamp(rig.pitch + rig.vp * dt, mode === 'earth' ? -1.25 : (stop === 0 ? .05 : -1.3), mode === 'earth' ? 1.25 : 1.35); rig.vy *= Math.exp(-dt * 4); rig.vp *= Math.exp(-dt * 4); }
-      if (!REDUCED && !ptr && (mode === 'system' || mode === 'boot')) rig.yaw += dt * (stop === 0 ? .012 : .02);
-      rig.zoom += (rig.zoomT - rig.zoom) * Math.min(1, dt * 6);
+      const earthM = mode === 'earth', pmin = earthM ? -1.25 : (stop === 0 ? .05 : -1.3), pmax = earthM ? 1.25 : 1.35;
+      // look / orbit: finger deltas steer a target; velocity carries on after release; the camera follows through a critically damped spring
+      if (ptr && ptr.ax !== undefined && ptr.axis !== 'v') {
+        const kk = (earthM ? 2.2 : 3.2) / Math.max(H, 500) * (earthM ? Math.min(1, rig.zoom) : 1), dx = ptr.ax, dy = ptr.ay; ptr.ax = ptr.ay = 0;
+        rig.yawT -= dx * kk; rig.pitchT += dy * kk;
+        const kv = 1 - Math.exp(-dt * 20); rig.vy += (-dx * kk / dt - rig.vy) * kv; rig.vp += (dy * kk / dt - rig.vp) * kv;
+      } else if (!ptr) {
+        rig.yawT += rig.vy * dt; rig.pitchT += rig.vp * dt; const dec = Math.exp(-dt * 3.4); rig.vy *= dec; rig.vp *= dec;
+        if (!REDUCED && (mode === 'system' || mode === 'boot')) rig.yawT += dt * (stop === 0 ? .012 : .02);
+      }
+      rig.vy = clamp(rig.vy, -7, 7); rig.vp = clamp(rig.vp, -7, 7);
+      if (rig.pitchT < pmin) { rig.pitchT = pmin; rig.vp = 0; } else if (rig.pitchT > pmax) { rig.pitchT = pmax; rig.vp = 0; }
+      rig.yaw = damp(rig.yaw, rig.yawT, 'yaw', .075, dt); rig.pitch = damp(rig.pitch, rig.pitchT, 'pitch', .075, dt);
+      rig.zoom += (rig.zoomT - rig.zoom) * (1 - Math.exp(-dt * 6));
       rig.dist = (rig.base || rig.dist) * rig.zoom;
+      // swipe-to-travel: the view leans with the finger (rubber-banded) and springs back if released early
+      if (ptr && ptr.axis === 'v' && mode === 'system') navT = rubber(ptr.ly - ptr.y); else navT = 0;
     }
-    const cp = Math.cos(rig.pitch);
-    const fl = REDUCED ? 0 : rig.dist * .0025;
-    camera.position.set(rig.target.x + rig.dist * cp * Math.sin(rig.yaw) + Math.sin(t * .31) * fl, rig.target.y + rig.dist * Math.sin(rig.pitch) + Math.sin(t * .23 + 1) * fl, rig.target.z + rig.dist * cp * Math.cos(rig.yaw));
+    navS += (navT - navS) * (1 - Math.exp(-dt * (navT ? 16 : 9)));
+    const pull = Math.abs(navS) > .01 ? navS / NAV_MAX : 0;
+    const cp = Math.cos(rig.pitch + pull * .05);
+    const fl = REDUCED ? 0 : rig.dist * .0025, dd = rig.dist * (1 + pull * .07);
+    camera.position.set(rig.target.x + dd * cp * Math.sin(rig.yaw) + Math.sin(t * .31) * fl, rig.target.y + dd * Math.sin(rig.pitch + pull * .05) + Math.sin(t * .23 + 1) * fl, rig.target.z + dd * cp * Math.cos(rig.yaw));
     camera.lookAt(rig.target);
   }
   // view offset keeps the planet clear of the card
   const wide = W > 820;
   vo.tx = cardOpen && mode === 'system' && wide ? Math.min(W * .17, 280) : 0;
-  vo.ty = cardOpen && mode === 'system' && !wide ? H * (ui.card.classList.contains('open') ? .26 : .14) : 0;
-  vo.x += (vo.tx - vo.x) * Math.min(1, dt * 3.2); vo.y += (vo.ty - vo.y) * Math.min(1, dt * 3.2);
+  vo.ty = cardOpen && mode === 'system' && !wide ? H * (cardFull ? .26 : .14) : 0;
+  const kvo = 1 - Math.exp(-dt * 3.2); vo.x += (vo.tx - vo.x) * kvo; vo.y += (vo.ty - vo.y) * kvo;
   if (Math.abs(vo.x) > .5 || Math.abs(vo.y) > .5) camera.setViewOffset(W, H, vo.x, vo.y, W, H); else camera.clearViewOffset();
   sky.position.copy(camera.position);
 
   // Earth lighting: true sunlight in space; inside Earth view, light follows you so every side can be read
   const sunDir = tmpV2.copy(E.root.position).negate().normalize();
-  E.lmix = lerp(E.lmix || 0, (mode === 'earth' || mode === 'dive') ? 1 : 0, Math.min(1, dt * 1.6));
-  const right = new V3().setFromMatrixColumn(camera.matrixWorld, 0), up = new V3().setFromMatrixColumn(camera.matrixWorld, 1);
-  const camL = new V3().subVectors(camera.position, E.root.position).normalize().multiplyScalar(.8).addScaledVector(right, -.5).addScaledVector(up, .35).normalize();
+  E.lmix = lerp(E.lmix || 0, (mode === 'earth' || mode === 'dive') ? 1 : 0, 1 - Math.exp(-dt * 1.6));
+  const right = _right.setFromMatrixColumn(camera.matrixWorld, 0), up = _up.setFromMatrixColumn(camera.matrixWorld, 1);
+  const camL = _camL.subVectors(camera.position, E.root.position).normalize().multiplyScalar(.8).addScaledVector(right, -.5).addScaledVector(up, .35).normalize();
   earthU.L.value.copy(sunDir).lerp(camL, E.lmix).normalize();
   E.atmo.material.uniforms.L.value.copy(earthU.L.value); E.atmo.material.uniforms.center.value.copy(E.root.position);
   cloudMat.uniforms.op.value = lerp(.95, .55, E.lmix);
@@ -670,14 +725,15 @@ function tick(now) {
   signal.userData.rings.forEach((r, k) => { const ph = (t * .45 + k * .5) % 1; r.scale.setScalar(.012 + ph * .09); r.material.opacity = (1 - ph) * .8; });
 
   // highlight orbits
-  PL.forEach(p => { const on = STOPS[stop].id === p.id; p.orbit.material.opacity += ((E.lmix > .3 ? 0 : on ? .32 : stop === 0 ? .16 : .08) - p.orbit.material.opacity) * Math.min(1, dt * 3); p.moons.forEach(m => { m.ring.material.opacity += ((on && mode === 'system' ? .12 : 0) - m.ring.material.opacity) * Math.min(1, dt * 3); }); });
+  const korb = 1 - Math.exp(-dt * 3);
+  PL.forEach(p => { const on = STOPS[stop].id === p.id; p.orbit.material.opacity += ((E.lmix > .3 ? 0 : on ? .32 : stop === 0 ? .16 : .08) - p.orbit.material.opacity) * korb; p.moons.forEach(m => { m.ring.material.opacity += ((on && mode === 'system' ? .12 : 0) - m.ring.material.opacity) * korb; }); });
 
   // sun & flare (in Earth view the light follows you, so the Sun steps out of the way)
   const sunF = 1 - E.lmix; sun.visible = sunF > .02; sunMat.uniforms.fade.value = sunF;
   corona.material.opacity = sunF; rays1.material.opacity = .5 * sunF; rays2.material.opacity = .4 * sunF; halo.material.opacity = sunF;
   beltMesh.visible = E.lmix < .6;
   const sv = sunVisibility();
-  flare.update(sv.ndc || { x: 0, y: 0 }, mode === 'earth' ? 0 : sv.v, W / H, dt, stop === 0 || mode === 'intro' || mode === 'boot' ? .55 : 1);
+  flare.update(sv.ndc || _ZERO, mode === 'earth' ? 0 : sv.v, W / H, dt, stop === 0 || mode === 'intro' || mode === 'boot' ? .55 : 1);
 
   scene.updateMatrixWorld();
   updateLabels(dt);
@@ -704,8 +760,8 @@ function updateLabels() {
   });
   // earth labels
   const showE = mode === 'earth' && !rig.tr;
-  const camDir = tmpV.subVectors(camera.position, E.root.position).normalize().clone();
-  const w = new V3(), n = new V3();
+  const camDir = _camDir.subVectors(camera.position, E.root.position).normalize();
+  const w = _w, n = _n;
   AP.sigVis = 0;
   eLabels.forEach(L => {
     if (!showE) return place(L.el, 0, 0, 0);
@@ -727,13 +783,13 @@ function updateLabels() {
 // ---------------------------------------------------------------- boot
 const loSet = ['sun', 'mercury', 'venus', 'earth', 'night', 'clouds', 'spec', 'normal', 'moon', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune', 'stars'];
 async function boot() {
-  resize();
+  resize(true);
   let done = 0; const bar = $('#ldBar'), pct = $('#ldPct');
   const step = () => { done++; const k = done / (loSet.length + 1); bar.style.transform = `scaleX(${k})`; pct.textContent = String(Math.round(k * 100)).padStart(3, '0'); };
   await Promise.all([...loSet.map(n => upgrade(n, 'lo').then(step)), P.saturn.loadRing().then(step).catch(step), document.fonts ? document.fonts.ready : 0]);
   AP.loLoaded = true;
   // pre-compile shaders so the first moves don't hitch
-  rig.target.set(0, 0, 0); rig.dist = overviewDist() * 2.6; rig.base = rig.dist; rig.yaw = .9; rig.pitch = .62; mode = 'boot';
+  rig.target.set(0, 0, 0); rig.dist = overviewDist() * 2.6; rig.base = rig.dist; rig.yaw = rig.yawT = .9; rig.pitch = rig.pitchT = .62; mode = 'boot';
   try { renderer.compile(scene, camera); } catch (e) { }
   requestAnimationFrame(tick);
   queueHi(['stars', 'sun', 'earth', 'night', 'clouds', 'jupiter', 'saturn', 'mars', 'venus', 'mercury', 'uranus', 'neptune', 'moon', 'spec', 'normal', ...(MOBILE ? [] : ['earth:xl', 'night:xl'])]);
@@ -746,7 +802,6 @@ function begin(withSound) {
   mode = 'intro'; AP.mode = mode; stop = 0;
   flyTo({ anchor: v => v.set(0, 0, 0), dist: overviewDist(), yaw: rig.yaw + .9, pitch: .72 }, REDUCED ? 1.2 : 5.2); rig.tr.arc = 0;
   sound.whoosh(4.5);
-  setTimeout(() => (window.requestIdleCallback || (f => setTimeout(f, 1)))(() => getHyper(), { timeout: 4000 }), 7000); // warm up the monument scene in the background
 }
 window.__apBegin = begin;
 $('#snd').onclick = () => { sound.unlock(); sound.set(!sound.on); $('#snd').classList.toggle('on', sound.on); };
@@ -754,5 +809,5 @@ if (window.__apWant !== undefined) setTimeout(() => begin(window.__apWant), 0);
 document.addEventListener('visibilitychange', () => { if (sound.ctx) { if (document.hidden) sound.ctx.suspend(); else if (sound.on) sound.ctx.resume(); } });
 AP.go = i => go(i); AP.enterEarth = () => enterEarth(); AP.dive = () => dive(); AP.tapHyper = () => renderHyperCard(); AP.exitHyper = () => exitHyper();
 AP.get = () => ({ mode, stop, card: cardOpen, tr: !!rig.tr, dist: rig.dist, zoom: rig.zoom, sigVis: AP.sigVis, dpr, fps: AP.fps, intro: hyper && !!hyper.intro });
-AP.faceSignal = () => { scene.updateMatrixWorld(); const a = signal.getWorldPosition(new V3()).sub(E.root.position).normalize(); rig.yaw = Math.atan2(a.x, a.z); rig.pitch = Math.asin(a.y); rig.vy = rig.vp = 0; };
+AP.faceSignal = () => { scene.updateMatrixWorld(); const a = signal.getWorldPosition(new V3()).sub(E.root.position).normalize(); rig.yaw = rig.yawT = Math.atan2(a.x, a.z); rig.pitch = rig.pitchT = Math.asin(a.y); rig.vy = rig.vp = 0; sdv.yaw = sdv.pitch = 0; };
 boot();

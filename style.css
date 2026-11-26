@@ -1,5 +1,5 @@
-@font-face { font-family: 'Inter Tight'; src: url(fonts/InterTight.woff2?v=674339) format('woff2'); font-weight: 100 900; font-display: swap; }
-@font-face { font-family: 'JB Mono'; src: url(fonts/JetBrainsMono.woff2?v=674339) format('woff2'); font-weight: 100 800; font-display: swap; }
+@font-face { font-family: 'Inter Tight'; src: url(fonts/InterTight.woff2?v=674995) format('woff2'); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: 'JB Mono'; src: url(fonts/JetBrainsMono.woff2?v=674995) format('woff2'); font-weight: 100 800; font-display: swap; }
 :root {
   --ink: #e9eef3; --mute: rgba(233, 238, 243, .62); --dim: rgba(233, 238, 243, .36); --line: rgba(255, 255, 255, .1); --mint: #97fce4;
   --st: env(safe-area-inset-top, 0px); --sb: env(safe-area-inset-bottom, 0px); --sl: env(safe-area-inset-left, 0px); --sr: env(safe-area-inset-right, 0px);
@@ -179,4 +179,13 @@ body.nogl .ld-nogl { display: block; } body.nogl .ld-load, body.nogl .ld-go { di
   #frame i { width: 12px; height: 12px; }
 }
 @media (max-height: 520px) and (orientation: landscape) { #card { max-height: 80vh; } #card h2 { font-size: 34px; } }
+/* touch devices: blurring a live WebGL canvas behind glass costs a full-screen pass every frame, so the glass is simply a little more opaque */
+@media (pointer: coarse), (max-width: 820px) {
+  #card, #pop, .btn, #earthBack, #hyperBack { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+  #card { background: linear-gradient(180deg, rgba(12, 17, 25, .9), rgba(5, 8, 12, .92)); }
+  #card.hl { background: linear-gradient(180deg, rgba(6, 24, 22, .92), rgba(3, 10, 11, .94)); }
+  #pop { background: rgba(8, 12, 18, .9); }
+  #earthBack, #hyperBack { background: rgba(6, 9, 14, .72); }
+  #vig { display: none; }
+}
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01s !important; transition-duration: .2s !important; } }

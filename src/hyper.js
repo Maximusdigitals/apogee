@@ -124,7 +124,7 @@ export class Hyper {
       this.cam.position.lerpVectors(this.start, this.end, e);
       const tgt = this.controls.target; this.cam.lookAt(tgt.x, tgt.y * e + 0 * (1 - e), tgt.z);
       if (k >= 1) { this.intro = null; this.controls.enabled = true; this.controls.update(); }
-    } else this.controls.update(dt);
+    } else { this.controls.dampingFactor = 1 - Math.exp(-dt * 6.5); this.controls.update(dt); }
   }
   pick(ndc) {
     this.ray.setFromCamera(ndc, this.cam);
