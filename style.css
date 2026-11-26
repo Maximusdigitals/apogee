@@ -1,5 +1,5 @@
-@font-face { font-family: 'Inter Tight'; src: url(fonts/InterTight.woff2?v=681025) format('woff2'); font-weight: 100 900; font-display: swap; }
-@font-face { font-family: 'JB Mono'; src: url(fonts/JetBrainsMono.woff2?v=681025) format('woff2'); font-weight: 100 800; font-display: swap; }
+@font-face { font-family: 'Inter Tight'; src: url(fonts/InterTight.woff2?v=681118) format('woff2'); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: 'JB Mono'; src: url(fonts/JetBrainsMono.woff2?v=681118) format('woff2'); font-weight: 100 800; font-display: swap; }
 :root {
   --ink: #e9eef3; --mute: rgba(233, 238, 243, .62); --dim: rgba(233, 238, 243, .36); --line: rgba(255, 255, 255, .1); --mint: #97fce4;
   --st: env(safe-area-inset-top, 0px); --sb: env(safe-area-inset-bottom, 0px); --sl: env(safe-area-inset-left, 0px); --sr: env(safe-area-inset-right, 0px);
@@ -239,3 +239,6 @@ body[data-alt="mars"] #hyperBack { border-color: rgba(255, 162, 115, .4); color:
 #card.hl.mars h2 { color: #ffd2b5; }
 #card.hl.mars .c-stats dd, #card.hl.mars .c-secs h4 { color: #ffc9a6; }
 @media (pointer: coarse), (max-width: 820px) { #card.hl.mars { background: linear-gradient(180deg, rgba(34, 16, 12, .93), rgba(12, 6, 5, .95)); } }
+#earthBack, #locate { white-space: nowrap; flex: none; }
+body[data-alt="mars"] #hint { bottom: auto; top: calc(78px + var(--st)); text-shadow: 0 1px 8px rgba(60, 20, 14, .8); color: rgba(255, 244, 236, .85); }
+@media (max-width: 380px) { #earthBack, #locate { padding: 0 11px; letter-spacing: .12em; } #earthUI { gap: 7px; } }
