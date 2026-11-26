@@ -702,7 +702,7 @@ function stepSpin(b, dt, drag, isCur) {
   if (b.goal) { const m = b.goal * (1 - Math.exp(-dt * 2.4)); b.uT += m; b.goal -= m; b.uv = 0; if (Math.abs(b.goal) < 5e-4) b.goal = 0; }
   if (drag !== null) { b.goal = 0; b.uT += drag; const vdt = Math.max(Math.min(spinRdt, .25), .004); b.uv += (drag / vdt - b.uv) * (1 - Math.exp(-vdt * 40)); }
   else { b.uT += b.uv * dt; b.uv *= Math.exp(-dt * (ea ? 1.15 : 2.8)); if (Math.abs(b.uv) < 1e-4) b.uv = 0; if (isCur && !REDUCED && (b === SUNB || (b === E && E.frozen && AP.sigVis < .3))) b.uT += dt * (b === SUNB ? .03 : .02); }
-  b.uv = clamp(b.uv, ea ? -10 : -9, ea ? 10 : 9);
+  b.uv = clamp(b.uv, ea ? -8 : -9, ea ? 8 : 9);
   b.u += (b.uT - b.u) * (1 - Math.exp(-dt * (ea ? 15 : 24)));
   if (b.uT === 0 && Math.abs(b.u) < 1e-6) b.u = 0;
 }
