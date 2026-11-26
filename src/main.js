@@ -130,7 +130,7 @@ function atmosphere(R, color, k, thick = .07) {
     fragmentShader: `uniform vec3 center, color, L; uniform float R, Rs, k; varying vec3 vP;
       void main(){ vec3 d = normalize(vP - cameraPosition); float tt = dot(center - cameraPosition, d); vec3 q = cameraPosition + d * tt;
         float b = length(q - center); float i = pow(clamp(1. - (b - R) / (Rs - R), 0., 1.), 3.2);
-        float lit = smoothstep(-.45, .6, dot(normalize(q - center), L)); gl_FragColor = vec4(color * i * lit * k, 1.); }`
+        vec3 qc = q - center; float ql = length(qc); float lit = ql > 1e-4 ? smoothstep(-.45, .6, dot(qc / ql, L)) : .5; gl_FragColor = vec4(max(color * i * lit * k, vec3(0.)), 1.); }`
   });
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(R * (1 + thick), 64, 32), m); mesh.renderOrder = 3; return mesh;
 }
@@ -225,7 +225,7 @@ const earthMat = new THREE.ShaderMaterial({
     vec3 perturb(vec3 p, vec3 n, vec2 uv, vec3 mn){ vec3 q0 = dFdx(p), q1 = dFdy(p); vec2 s0 = dFdx(uv), s1 = dFdy(uv);
       if (abs(s0.x) > .25 || abs(s1.x) > .25) return n;
       vec3 q1p = cross(q1, n), q0p = cross(n, q0); vec3 T = q1p * s0.x + q0p * s1.x, B = q1p * s0.y + q0p * s1.y;
-      float det = max(dot(T, T), dot(B, B)); float sc = det == 0. ? 0. : inversesqrt(det); return normalize(T * (mn.x * sc) + B * (mn.y * sc) + n * mn.z); }
+      float det = max(dot(T, T), dot(B, B)); if (det < 1e-20) return n; float sc = inversesqrt(det); vec3 r = T * (mn.x * sc) + B * (mn.y * sc) + n * mn.z; return dot(r, r) > 1e-12 ? normalize(r) : n; }
     void main(){
       vec3 N = normalize(vN), V = normalize(cameraPosition - vP), Ld = normalize(L);
       vec3 mn = texture2D(normalMap, vUv).xyz * 2. - 1.; mn.xy *= normalK; vec3 Np = perturb(vP, N, vUv, normalize(mn));
@@ -237,7 +237,7 @@ const earthMat = new THREE.ShaderMaterial({
       col += vec3(.2, .35, .55) * pow(max(dot(N, Hh), 0.), 8.) * spec * smoothstep(0., .25, ndl) * .08;
       vec3 night = texture2D(nightMap, vUv).rgb; col += night * night * vec3(1.6, 1.25, .85) * 2.6 * (1. - dayK) * nightK * (1. - cl * .7);
       float fr = pow(1. - max(dot(N, V), 0.), 2.6); col += vec3(.3, .58, 1.) * fr * smoothstep(-.35, .55, ndl) * .85;
-      gl_FragColor = vec4(col, 1.);
+      gl_FragColor = vec4(clamp(col, 0., 64.), 1.);
       #include <colorspace_fragment>
     }`
 });
