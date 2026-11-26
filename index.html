@@ -22,10 +22,10 @@
 <meta name="format-detection" content="telephone=no">
 <link rel="canonical" href="https://maximusdigitals.github.io/apogee/">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23020306'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23ffd9a8'/%3E%3Cellipse cx='16' cy='16' rx='12' ry='5' fill='none' stroke='%2397fce4' stroke-width='1.2' transform='rotate(-20 16 16)'/%3E%3C/svg%3E">
-<link rel="preload" href="fonts/InterTight.woff2?v=678100" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="fonts/JetBrainsMono.woff2?v=678100" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="style.css?v=678100">
-<script>window.__V = '678100';</script>
+<link rel="preload" href="fonts/InterTight.woff2?v=680619" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/JetBrainsMono.woff2?v=680619" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="style.css?v=680619">
+<script>window.__V = '680619';</script>
 </head>
 <body>
 <canvas id="gl" aria-label="The solar system in 3D. Use the arrows to travel between planets, drag to spin the object you are looking at, tap a planet for its story."></canvas>
@@ -53,8 +53,9 @@
 <aside id="card" aria-live="polite"><button id="cardX" type="button" aria-label="Close">×</button><div id="cardIn"></div></aside>
 <div id="pop" role="dialog"></div>
 
-<div id="earthUI"><button id="earthBack" type="button"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>Back to orbit</button></div>
+<div id="earthUI"><button id="earthBack" type="button"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>Back to orbit</button><button id="locate" type="button"><i></i>Locate signal</button></div>
 <div id="hyperUI"><button id="hyperBack" type="button"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>Return to orbit</button></div>
+<p id="say" aria-hidden="true"></p>
 <div id="fade" aria-hidden="true"></div>
 <i id="ripple" aria-hidden="true"></i>
 
@@ -79,6 +80,6 @@
   window.addEventListener('error', function (e) { if (!window.__ap || !window.__ap.ready) { if (String(e.message || '').indexOf('webgl') >= 0 || !window.WebGL2RenderingContext) document.body.classList.add('nogl'); } });
 })();
 </script>
-<script src="app.js?v=678100" defer></script>
+<script src="app.js?v=680619" defer></script>
 </body>
 </html>

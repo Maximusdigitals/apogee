@@ -3,9 +3,10 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { STOPS, CONTINENTS, CITIES, SIGNAL, HYPER } from './data.js';
+import { MARS, MARS_SITE,STOPS, CONTINENTS, CITIES, SIGNAL, HYPER } from './data.js';
 import { Flare, glowTex, raysTex } from './fx.js';
 import { Hyper, MINT } from './hyper.js';
+import { MarsBase } from './mars.js';
 import { Sound } from './audio.js';
 
 const $ = s => document.querySelector(s), V3 = THREE.Vector3, PI = Math.PI;
@@ -25,6 +26,7 @@ try {
   if (!renderer.capabilities.isWebGL2) throw new Error('webgl2');
 } catch (e) { document.body.classList.add('nogl'); AP.mode = 'nogl'; throw e; }
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; // only the Mars base casts shadows; every other scene is unaffected
 const ANISO = Math.min(8, renderer.capabilities.getMaxAnisotropy());
 const DPR_MAX = Math.min(window.devicePixelRatio || 1, MOBILE ? 1.5 : 1.75), DPR_MIN = MOBILE ? .9 : 1;
 let dpr = DPR_MAX, W = 1, H = 1;
@@ -315,6 +317,8 @@ const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), .9, .55, .92); co
 if (MOBILE) { bloom.nMips = 3; const ss = bloom.setSize.bind(bloom); bloom.setSize = (w, h) => ss(Math.round(w * .5), Math.round(h * .5)); }
 composer.addPass(new OutputPass());
 const flare = new Flare();
+let mars = null, alt = null, altKind = null;
+const getMars = () => { if (!mars) { mars = new MarsBase(renderer, canvas, MOBILE); mars.resize(W, H, dpr); try { renderer.compileAsync ? renderer.compileAsync(mars.scene, mars.cam).catch(() => { }) : renderer.compile(mars.scene, mars.cam); } catch (e) { } } return mars; };
 let hyper = null; const getHyper = () => { if (!hyper) { hyper = new Hyper(renderer, canvas, MOBILE); hyper.resize(W, H, dpr); try { renderer.compileAsync ? renderer.compileAsync(hyper.scene, hyper.cam).catch(() => { }) : renderer.compile(hyper.scene, hyper.cam); } catch (e) { } } return hyper; };
 
 // ---------------------------------------------------------------- camera rig
@@ -380,8 +384,16 @@ const plabels = STOPS.map((s, i) => {
 const eLabels = [];
 CONTINENTS.forEach(c => { const el = document.createElement('button'); el.className = 'elabel cont'; el.textContent = c.name; el._sfx = ' translate(-50%,-50%)'; el.onclick = () => showPop(c.name, c.area, c.desc); ui.labels.appendChild(el); eLabels.push({ el, p: ll(c.lat, c.lon, 1.01), cont: 1 }); });
 CITIES.forEach(c => { const el = document.createElement('button'); el.className = 'elabel city'; el.innerHTML = `<i></i><span>${c.name}</span>`; el._sfx = ' translate(-5px,-50%)'; el.onclick = () => showPop(c.name, `${Math.abs(c.lat).toFixed(1)}° ${c.lat >= 0 ? 'N' : 'S'} · ${Math.abs(c.lon).toFixed(1)}° ${c.lon >= 0 ? 'E' : 'W'}`, c.desc); ui.labels.appendChild(el); eLabels.push({ el, p: ll(c.lat, c.lon, 1.004) }); });
+// Mars Base Alpha: a tiny glinting marker on Mars's surface (fan easter egg)
+const marsMarker = new THREE.Group(); P.mars.spin.add(marsMarker); marsMarker.position.copy(ll(MARS_SITE.lat, MARS_SITE.lon, P.mars.r * 1.006)); marsMarker.visible = false;
+{ const cv = document.createElement('canvas'); cv.width = cv.height = 128; const c = cv.getContext('2d'); const g = c.createRadialGradient(64, 64, 0, 64, 64, 64); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(.12, 'rgba(255,236,200,.9)'); g.addColorStop(.4, 'rgba(255,190,130,.22)'); g.addColorStop(1, 'rgba(255,170,110,0)'); c.fillStyle = g; c.fillRect(0, 0, 128, 128);
+  c.globalCompositeOperation = 'lighter'; [[0, 1], [1, 0]].forEach(([a, b]) => { const l = c.createLinearGradient(64 - 62 * a, 64 - 62 * b, 64 + 62 * a, 64 + 62 * b); l.addColorStop(0, 'rgba(255,255,255,0)'); l.addColorStop(.5, 'rgba(255,255,255,.95)'); l.addColorStop(1, 'rgba(255,255,255,0)'); c.fillStyle = l; c.fillRect(a ? 2 : 62, b ? 2 : 62, a ? 124 : 4, b ? 124 : 4); });
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  const gl = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending, fog: false })); gl.scale.setScalar(.075); marsMarker.add(gl); marsMarker.userData.glint = gl; }
+const marsLabel = document.createElement('button'); marsLabel.className = 'elabel sig mars'; marsLabel.innerHTML = '<span>Mars Base Alpha</span><em>Tap or zoom in to land</em>';
+marsLabel._sfx = ' translate(-13px,-50%)'; marsLabel.onclick = () => dive('mars'); ui.labels.appendChild(marsLabel);
 const sigLabel = document.createElement('button'); sigLabel.className = 'elabel sig'; sigLabel.innerHTML = '<span>Signal detected</span><em>Tap or zoom in to descend</em>';
-sigLabel._sfx = ' translate(-13px,-50%)'; sigLabel.onclick = () => dive(); ui.labels.appendChild(sigLabel);
+sigLabel._sfx = ' translate(-13px,-50%)'; sigLabel.onclick = () => dive('hyper'); ui.labels.appendChild(sigLabel);
 function showPop(t, sub, d) { sound.blip(900); ui.pop.innerHTML = `<button class="x" aria-label="Close">×</button><p class="k">${sub}</p><h3>${t}</h3><p>${d}</p>`; ui.pop.classList.add('on'); ui.pop.querySelector('.x').onclick = () => ui.pop.classList.remove('on'); }
 
 function setHint(t) { if (ui.hint.dataset.t === t) return; ui.hint.dataset.t = t; ui.hint.classList.remove('on'); clearTimeout(setHint.k); setHint.k = setTimeout(() => { ui.hint.textContent = t; if (t) ui.hint.classList.add('on'); }, 350); }
@@ -394,7 +406,7 @@ function renderCard(i) {
     <div class="c-body"><dl class="c-stats">${s.stats.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>
     <ol class="c-facts">${s.facts.map(f => `<li>${f}</li>`).join('')}</ol></div>
     ${s.enter ? '<button class="c-cta" type="button" id="enterEarth"><span>Enter Earth</span><i></i></button>' : ''}`;
-  ui.card.classList.remove('hl', 'open'); cardFull = false;
+  ui.card.classList.remove('hl', 'open', 'mars'); cardFull = false;
   const ee = $('#enterEarth'); if (ee) ee.onclick = () => enterEarth();
   ui.cardIn.querySelector('.c-more').onclick = () => { cardFull = ui.card.classList.toggle('open'); sound.blip(820); };
   openCard();
@@ -410,8 +422,20 @@ function renderHyperCard() {
   ui.cardIn.querySelector('.c-more').onclick = () => { cardFull = ui.card.classList.toggle('open'); sound.blip(820); };
   openCard(); sound.chime();
 }
+function renderMarsCard() {
+  const m = MARS;
+  ui.cardIn.innerHTML = `<div class="c-top"><span class="c-idx">★</span><span class="c-kind">${m.kicker}</span></div>
+    <h2>${m.title}</h2><p class="c-desc">${m.desc}</p><button class="c-more" type="button">Details</button>
+    <div class="c-body"><dl class="c-stats">${m.facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>
+    <div class="c-secs">${m.sections.map(([k, v]) => `<section><h4>${k}</h4><p>${v}</p></section>`).join('')}</div><p class="c-fine">${m.fine}</p></div>
+    <button class="c-cta" type="button" id="waveBtn"><span>Wave hello</span><i></i></button>`;
+  ui.card.classList.add('hl', 'mars'); ui.card.classList.remove('open'); cardFull = false;
+  ui.cardIn.querySelector('.c-more').onclick = () => { cardFull = ui.card.classList.toggle('open'); sound.blip(820); };
+  $('#waveBtn').onclick = () => { if (alt && alt.waveAll) { alt.waveAll(3.4); sayHi(1); sound.blip(900); } };
+  openCard(); sound.chime();
+}
 function openCard() { cardOpen = true; document.body.classList.add('card-on'); ui.card.classList.add('on'); ui.cardIn.scrollTop = 0; }
-function closeCard() { cardOpen = false; cardFull = false; document.body.classList.remove('card-on'); ui.card.classList.remove('on', 'open'); }
+function closeCard() { cardOpen = false; cardFull = false; document.body.classList.remove('card-on'); ui.card.classList.remove('on', 'open'); setTimeout(() => { if (!cardOpen) ui.card.classList.remove('mars'); }, 900); }
 $('#cardX').onclick = () => { closeCard(); sound.blip(500); };
 
 function setTele(i) {
@@ -439,10 +463,21 @@ function go(i, opts = {}) {
   [i - 1, i + 1].forEach(j => { const nid = STOPS[j] && STOPS[j].id; if (nid && texSlots[nid]) queueHi([nid]); }); // next/previous stop's imagery is ready before you swipe
   if (pid === 'earth') queueHi(['earth', 'night', 'clouds', 'spec', 'normal'], true);
   if (pid === 'mars' || pid === 'jupiter' || pid === 'saturn' || pid === 'earth' || pid === 'neptune' || pid === 'uranus') queueHi(['moon']);
-  rig.onArrive = () => { if (stop === i && mode === 'system') { renderCard(i); try { navigator.vibrate && navigator.vibrate(6); } catch (_) { } } };
+  rig.onArrive = () => { if (stop === i && mode === 'system') { renderCard(i); try { navigator.vibrate && navigator.vibrate(6); } catch (_) { } if (pid === 'mars') { setTimeout(() => { if (stop === i && mode === 'system' && !ptr) faceObj(P.mars, marsMarker); }, 500); setTimeout(() => { if (stop === i && !mars && mode === 'system') getMars(); }, 1500); } } };
   setHint(i === 0 ? 'Use the arrows to travel  ·  Drag to look around' : (i === 1 || i === 2 ? 'Drag to spin' : ''));
 }
 
+const wrapA = a => Math.atan2(Math.sin(a), Math.cos(a));
+function faceObj(b, obj) { // glide a body round (silky, interruptible) until the object on it faces the camera
+  scene.updateMatrixWorld(); obj.getWorldPosition(_w).sub(b.root.position); _camDir.subVectors(camera.position, b.root.position);
+  b.goal = wrapA(Math.atan2(_camDir.x, _camDir.z) - Math.atan2(_w.x, _w.z)); b.uv = 0;
+}
+function locateSignal() {
+  if (mode !== 'earth') return; sound.blip(720); faceObj(E, signal);
+  _w.copy(signal.getWorldPosition(_w)).sub(E.root.position); const lat = Math.asin(clamp(_w.y / _w.length(), -1, 1));
+  rig.pUT = clamp(lat - rig.pBT, -1.42 - rig.pBT, 1.42 - rig.pBT); rig.vp = 0;
+}
+$('#locate').onclick = () => locateSignal();
 function enterEarth() {
   if (mode !== 'system' || STOPS[stop].id !== 'earth') return;
   mode = 'earth'; AP.mode = mode; closeCard(); sound.whoosh(2.2); document.body.classList.add('in-earth');
@@ -462,33 +497,50 @@ function exitEarth(silent) {
 $('#earthBack').onclick = () => { sound.blip(500); exitEarth(false); };
 
 let diveS = null;
-function dive() {
-  if (mode !== 'earth') return;
-  mode = 'dive'; AP.mode = mode; E.uv = 0; ui.pop.classList.remove('on'); ui.earthUI.classList.remove('on'); setHint('');
+const MARS_FADE = 'radial-gradient(circle at 50% 50%, #fff4ec 0%, #f4c6aa 32%, #c0654c 72%, #3b1b17 100%)', HYPER_FADE = '';
+function dive(kind = 'hyper') {
+  const mk = kind === 'mars';
+  if (mk ? (mode !== 'system' || STOPS[stop].id !== 'mars') : mode !== 'earth') return;
+  mode = 'dive'; AP.mode = mode; E.uv = 0; P.mars.uv = 0; P.mars.goal = E.goal = 0; ui.pop.classList.remove('on'); ui.earthUI.classList.remove('on'); closeCard(); setHint('');
   scene.updateMatrixWorld();
-  const S = signal.getWorldPosition(new V3()), n = S.clone().sub(E.root.position).normalize();
-  diveS = { t: 0, d: REDUCED ? 1.2 : 2.6, p0: camera.position.clone(), q0: camera.quaternion.clone(), S, n, f0: camera.fov };
-  sound.whoosh(2.8, true); getHyper();
+  const obj = mk ? marsMarker : signal, body = mk ? P.mars : E;
+  const S = obj.getWorldPosition(new V3()), n = S.clone().sub(body.root.position).normalize();
+  diveS = { t: 0, d: REDUCED ? 1.2 : (mk ? 2.3 : 2.6), p0: camera.position.clone(), q0: camera.quaternion.clone(), S, n, f0: camera.fov, obj, kind, off: mk ? .008 : .015 };
+  ui.fade.style.background = mk ? MARS_FADE : HYPER_FADE;
+  sound.whoosh(2.8, true); mk ? getMars() : getHyper();
 }
-function startHyper() {
-  mode = 'hyper'; AP.mode = mode; diveS = null; const h = getHyper();
-  renderPass.scene = h.scene; renderPass.camera = h.cam; renderer.toneMapping = THREE.NeutralToneMapping; renderer.toneMappingExposure = .85;
-  bloom.strength = .4; bloom.threshold = 1.1; bloom.radius = .35;
-  ui.tele.innerHTML = `<p><span>Target</span><b>Hyperliquid</b></p><p><span>Surface</span><b>${SIGNAL.lat.toFixed(2)}° N · ${SIGNAL.lon.toFixed(2)}° E</b></p><p><span>Signal</span><b>Locked</b></p>`;
-  h.resize(W, H, dpr); h.enter(REDUCED); document.body.classList.add('in-hyper'); ui.hyperUI.classList.add('on');
+function startAlt() {
+  const kind = diveS.kind, mk = kind === 'mars'; mode = 'hyper'; AP.mode = mode; diveS = null; altKind = kind; const h = alt = mk ? getMars() : getHyper();
+  renderPass.scene = h.scene; renderPass.camera = h.cam;
+  if (mk) {
+    renderer.toneMapping = THREE.NeutralToneMapping; renderer.toneMappingExposure = 1.0; bloom.strength = .22; bloom.threshold = 1.05; bloom.radius = .4;
+    ui.tele.innerHTML = `<p><span>Target</span><b>Mars Base Alpha</b></p><p><span>Surface</span><b>${MARS_SITE.lat.toFixed(1)}° N · ${MARS_SITE.lon.toFixed(1)}° E</b></p><p><span>Status</span><b>Fan easter egg</b></p>`;
+    h.onWave = () => { sayHi(0, 'Hello, Earth!'); };
+    setHint(MOBILE ? 'Drag to look around  ·  Tap an astronaut or the base' : 'Drag to look around  ·  Scroll to zoom  ·  Click an astronaut or the base');
+    setTimeout(() => { if (altKind === 'mars' && mode === 'hyper') setHint(''); }, 5600);
+  } else {
+    renderer.toneMapping = THREE.NeutralToneMapping; renderer.toneMappingExposure = .85; bloom.strength = .4; bloom.threshold = 1.1; bloom.radius = .35;
+    ui.tele.innerHTML = `<p><span>Target</span><b>Hyperliquid</b></p><p><span>Surface</span><b>${SIGNAL.lat.toFixed(2)}° N · ${SIGNAL.lon.toFixed(2)}° E</b></p><p><span>Signal</span><b>Locked</b></p>`;
+    setHint(MOBILE ? 'Drag to walk around it  ·  Tap the monument' : 'Drag to walk around it  ·  Scroll to zoom  ·  Click the monument');
+  }
+  h.resize(W, H, dpr); h.enter(REDUCED); document.body.classList.add('in-hyper'); document.body.dataset.alt = kind; ui.hyperUI.classList.add('on');
   ui.fade.style.transition = 'opacity 1.8s ease'; ui.fade.style.opacity = 0;
-  setHint(MOBILE ? 'Drag to walk around it  ·  Tap the monument' : 'Drag to walk around it  ·  Scroll to zoom  ·  Click the monument');
-  sound.chime(); hyper.controls.enabled = false;
+  sound.chime(); h.controls.enabled = false;
 }
+const sayEl = $('#say'), say = { t: 0, i: 0 }, SAYS = ['Hello, Earth!', 'Welcome to Mars!', 'Nice of you to drop by!', 'Mind the dust!', 'Ad astra!', 'Tell them we said hi!'];
+let sayN = 0;
+function sayHi(i, txt) { say.i = i; say.t = 2.8; sayEl.textContent = txt || SAYS[sayN++ % SAYS.length]; }
 function exitHyper() {
-  ui.fade.style.transition = 'opacity .7s ease'; ui.fade.style.opacity = 1; closeCard(); sound.whoosh(1.6);
+  const kind = altKind; ui.fade.style.transition = 'opacity .7s ease'; ui.fade.style.opacity = 1; closeCard(); sound.whoosh(1.6); say.t = 0;
   setTimeout(() => {
     renderPass.scene = scene; renderPass.camera = camera; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
-    bloom.strength = .9; bloom.threshold = .92; bloom.radius = .55; hyper.controls.enabled = false;
-    document.body.classList.remove('in-hyper'); ui.hyperUI.classList.remove('on'); setTele(stop);
+    bloom.strength = .9; bloom.threshold = .92; bloom.radius = .55; if (alt) alt.controls.enabled = false; alt = null;
+    document.body.classList.remove('in-hyper'); delete document.body.dataset.alt; ui.hyperUI.classList.remove('on'); setTele(stop);
     camera.fov = FOV; camera.updateProjectionMatrix();
-    mode = 'earth'; AP.mode = mode; rig.zoomT = 1; rig.ld = Math.log(rig.base * 1.4); sdv.ld = 0; rig.tr = rig.tr || { t: 0 }; rig.calm = rig.arrived = false; ui.earthUI.classList.add('on');
+    rig.zoomT = 1; rig.ld = Math.log(rig.base * 1.4); sdv.ld = 0; rig.tr = rig.tr || { t: 0 }; rig.calm = rig.arrived = false;
+    if (kind === 'mars') { mode = 'system'; AP.mode = mode; setHint(''); } else { mode = 'earth'; AP.mode = mode; ui.earthUI.classList.add('on'); }
     ui.fade.style.transition = 'opacity 1.2s ease'; ui.fade.style.opacity = 0;
+    setTimeout(() => { if (mode !== 'dive') ui.fade.style.background = ''; }, 1400);
   }, 750);
 }
 $('#hyperBack').onclick = () => { sound.blip(500); exitHyper(); };
@@ -509,7 +561,7 @@ canvas.addEventListener('pointermove', e => {
   if (p.ax === undefined) { p.moved = Math.max(p.moved, Math.hypot(e.clientX - p.x, e.clientY - p.y)); return; } // hyper mode: OrbitControls does the dragging
   p.moved = Math.max(p.moved, Math.hypot(e.clientX - p.x, e.clientY - p.y));
   if (mode === 'dive' || mode === 'boot' || mode === 'intro') return;
-  if (!p.drag) { const slop = p.type === 'touch' ? 9 : 4; if (p.moved > slop) { const dx = e.clientX - p.x, dy = e.clientY - p.y, k = 1 - slop / Math.hypot(dx, dy); p.drag = true; p.ax = dx * k; p.ay = dy * k; p.lx = e.clientX; p.ly = e.clientY; if (hoverOn) { hoverOn = false; canvas.style.cursor = ''; } } return; }
+  if (!p.drag) { const slop = mode === 'earth' ? (p.type === 'touch' ? 5 : 3) : (p.type === 'touch' ? 9 : 4); if (p.moved > slop) { const dx = e.clientX - p.x, dy = e.clientY - p.y, k = 1 - slop / Math.hypot(dx, dy); p.drag = true; p.ax = dx * k; p.ay = dy * k; p.lx = e.clientX; p.ly = e.clientY; if (hoverOn) { hoverOn = false; canvas.style.cursor = ''; } } return; }
   p.ax += e.clientX - p.lx; p.ay += e.clientY - p.ly; p.lx = e.clientX; p.ly = e.clientY;
 }, PB);
 const endPtr = e => {
@@ -528,7 +580,7 @@ canvas.addEventListener('touchmove', e => { if (pinch && e.touches.length === 2)
 canvas.addEventListener('touchend', e => { if (e.touches.length < 2) pinch = null; }, PB);
 document.addEventListener('gesturestart', e => e.preventDefault(), { passive: false }); // iOS: no page pinch-zoom (the canvas is touch-action: none)
 function setZoom(z) {
-  const lo = mode === 'earth' ? (AP.sigNear ? .3 : .62) : .55;
+  const lo = mode === 'earth' ? (AP.sigNear ? .3 : .62) : (STOPS[stop].id === 'mars' ? .44 : .55);
   rig.zoomT = clamp(z, lo, mode === 'earth' ? 1.25 : 1.6);
 }
 addEventListener('wheel', e => {
@@ -567,14 +619,21 @@ function pickBody(x, y) { // nearest planet/sun under a screen point
 function tap(x, y) {
   if (mode !== 'boot' && mode !== 'intro' && mode !== 'dive') ripple(x, y);
   if (mode === 'hyper') {
-    if (hyper && !hyper.intro && hyper.pick(new THREE.Vector2(x / W * 2 - 1, -(y / H) * 2 + 1))) renderHyperCard(); else if (cardOpen && MOBILE) closeCard();
+    if (!alt || alt.intro) return;
+    const hit = alt.pick(new THREE.Vector2(x / W * 2 - 1, -(y / H) * 2 + 1));
+    if (altKind === 'mars') {
+      if (hit && hit.astro !== undefined) { alt.wave(hit.astro, 0, 3.4); sayHi(hit.astro); sound.blip(900); }
+      else if (hit) { renderMarsCard(); }
+      else if (cardOpen && MOBILE) closeCard();
+    } else if (hit) renderHyperCard(); else if (cardOpen && MOBILE) closeCard();
     return;
   }
   if (mode === 'earth') {
-    const s = screenOf(signal.getWorldPosition(tmpV2)); if (AP.sigVis > .3 && Math.hypot(s.x - x, s.y - y) < 44) dive();
+    const s = screenOf(signal.getWorldPosition(tmpV2)); if (AP.sigVis > .1 && Math.hypot(s.x - x, s.y - y) < (MOBILE ? 68 : 54)) dive('hyper'); // one tap anywhere near the green spot goes straight in
     return;
   }
   if (mode !== 'system') return;
+  if (STOPS[stop].id === 'mars' && AP.marsVis > .15) { const s = screenOf(marsMarker.getWorldPosition(tmpV2)); if (Math.hypot(s.x - x, s.y - y) < (MOBILE ? 66 : 52)) { dive('mars'); return; } }
   const best = pickBody(x, y);
   if (best) { if (best.stop === stop) { if (!cardOpen) renderCard(stop); else if (MOBILE) cardFull = ui.card.classList.toggle('open'); } else { sound.blip(760); go(best.stop); } }
 }
@@ -588,7 +647,7 @@ function resize(force) {
   FOV = W / H < .8 ? 54 : 42; camera.fov = FOV; camera.aspect = W / H;
   renderer.setPixelRatio(dpr); renderer.setSize(W, H, false); composer.setPixelRatio(dpr); composer.setSize(W, H);
   starMat.uniforms.dpr.value = dpr; camera.updateProjectionMatrix();
-  if (hyper) hyper.resize(W, H, dpr);
+  if (hyper) hyper.resize(W, H, dpr); if (mars) mars.resize(W, H, dpr);
   if (mode === 'system') rig.base = frame(stop).dist;
 }
 addEventListener('resize', () => resize()); window.visualViewport?.addEventListener('resize', () => resize());
@@ -630,7 +689,7 @@ function damp(cur, tgt, key, st, dt) { const o = 2 / st, x = o * dt, e = 1 / (1 
 const earthLightTmp = new V3(), _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion(), _Y = new V3(0, 1, 0);
 let spinRdt = .016;
 const SUNB = { id: 'sun', u: 0, uT: 0, uv: 0 };
-PL.forEach(p => { p.u = p.uT = p.uv = 0; p.own = p.spin.rotation.y; });
+PL.forEach(p => { p.u = p.uT = p.uv = 0; p.goal = 0; p.wsf = 1; p.own = p.spin.rotation.y; });
 function inspBody() { // the object a drag spins right now (null = orbit the camera: overview, belt)
   if (mode === 'earth') return P.earth;
   if (mode !== 'system') return null;
@@ -639,11 +698,19 @@ function inspBody() { // the object a drag spins right now (null = orbit the cam
 // spin with inertia: while dragging the object follows the finger 1:1 (lightly filtered); on release the measured velocity decays smoothly,
 // and the body's own slow rotation (or a gentle drift for the Sun and the frozen Earth) carries on underneath
 function stepSpin(b, dt, drag, isCur) {
-  if (drag !== null) { b.uT += drag; const vdt = Math.max(Math.min(spinRdt, .25), .004); b.uv += (drag / vdt - b.uv) * (1 - Math.exp(-vdt * 40)); }
-  else { b.uT += b.uv * dt; b.uv *= Math.exp(-dt * 2.8); if (Math.abs(b.uv) < 1e-4) b.uv = 0; if (isCur && !REDUCED && (b === SUNB || (b === E && E.frozen && AP.sigVis < .3))) b.uT += dt * (b === SUNB ? .03 : .02); }
-  b.uv = clamp(b.uv, -9, 9);
-  b.u += (b.uT - b.u) * (1 - Math.exp(-dt * 24));
+  const ea = b === E && mode === 'earth'; // the Earth globe: silkier filter, longer glide
+  if (b.goal) { const m = b.goal * (1 - Math.exp(-dt * 2.4)); b.uT += m; b.goal -= m; b.uv = 0; if (Math.abs(b.goal) < 5e-4) b.goal = 0; }
+  if (drag !== null) { b.goal = 0; b.uT += drag; const vdt = Math.max(Math.min(spinRdt, .25), .004); b.uv += (drag / vdt - b.uv) * (1 - Math.exp(-vdt * 40)); }
+  else { b.uT += b.uv * dt; b.uv *= Math.exp(-dt * (ea ? 1.15 : 2.8)); if (Math.abs(b.uv) < 1e-4) b.uv = 0; if (isCur && !REDUCED && (b === SUNB || (b === E && E.frozen && AP.sigVis < .3))) b.uT += dt * (b === SUNB ? .03 : .02); }
+  b.uv = clamp(b.uv, ea ? -10 : -9, ea ? 10 : 9);
+  b.u += (b.uT - b.u) * (1 - Math.exp(-dt * (ea ? 15 : 24)));
   if (b.uT === 0 && Math.abs(b.u) < 1e-6) b.u = 0;
+}
+const _sp = new V3();
+function updateSay(dt) {
+  say.t -= dt; if (altKind !== 'mars' || !alt || !alt.astros) { sayEl.style.opacity = 0; return; }
+  alt.headWorld(say.i, _sp).project(alt.cam); const x = (_sp.x * .5 + .5) * W, y = (-_sp.y * .5 + .5) * H;
+  sayEl.style.transform = `translate3d(${x.toFixed(1)}px,${(y - 6).toFixed(1)}px,0) translate(-50%,-100%)`; sayEl.style.opacity = (_sp.z < 1 && !(cardOpen && MOBILE)) ? Math.min(1, say.t * 3, (2.8 - say.t) * 5) : 0;
 }
 function tick(now) {
   requestAnimationFrame(tick);
@@ -661,12 +728,12 @@ function tick(now) {
   }
 
   if (mode === 'hyper' || (mode === 'dive' && diveS && diveS.t >= diveS.d)) {
-    if (mode === 'dive') startHyper();
-    hyper.update(dt); composer.render(dt); return;
+    if (mode === 'dive') startAlt();
+    alt.update(dt); if (say.t > 0) updateSay(dt); renderer.info.autoReset = false; renderer.info.reset(); composer.render(dt); AP.calls = renderer.info.render.calls; AP.tris = renderer.info.render.triangles; return;
   }
   const sim = dt; spinRdt = rdt;
   const earthM = mode === 'earth', cur = inspBody(), dsrc = (ptr && ptr.drag && ptr.ax !== undefined) ? ptr : ((rel && (rel.ax || rel.ay)) ? rel : null), drag = !!dsrc && mode !== 'dive'; rel = null;
-  const kx = 2 * PI / (1.2 * Math.min(W, 900)) * (earthM ? clamp(rig.zoom, .4, 1) : 1); // rad per pixel: a swipe of ~0.8 screen widths turns the object a full 360
+  const kx = earthM ? 4.4 / Math.min(W, 1000) * lerp(.5, 1, clamp(rig.zoom, 0, 1)) : 2 * PI / (1.2 * Math.min(W, 900)); // rad per pixel: a swipe of ~0.8 screen widths turns the object a full 360
   let ddx = 0, ddy = 0; if (drag) { ddx = dsrc.ax; ddy = dsrc.ay; dsrc.ax = dsrc.ay = 0; }
   stepSpin(SUNB, dt, cur === SUNB && drag ? ddx * kx : null, cur === SUNB);
   // orbits & spins
@@ -674,7 +741,8 @@ function tick(now) {
   starMat.uniforms.t.value = t;
   for (const p of PL) {
     p.ang += p.w * sim; p.root.position.set(Math.cos(p.ang) * p.a, 0, -Math.sin(p.ang) * p.a);
-    if (!(p.id === 'earth' && E.frozen)) p.own += p.ws * sim;
+    p.wsf += (((p.id === 'mars' && STOPS[stop].id === 'mars' && mode === 'system') ? .1 : 1) - p.wsf) * (1 - Math.exp(-dt * 1.4));
+    if (!(p.id === 'earth' && E.frozen)) p.own += p.ws * p.wsf * sim;
     stepSpin(p, dt, cur === p && drag ? ddx * kx : null, cur === p);
     if (p.u !== 0 || p.uT !== 0) { _qa.copy(p.tiltG.quaternion).invert().multiply(_qb.setFromAxisAngle(_Y, p.u)).multiply(p.tiltG.quaternion).multiply(_qb.setFromAxisAngle(_Y, p.own)); p.spin.quaternion.copy(_qa); } else p.spin.rotation.y = p.own;
     p.moons.forEach(m => { m.piv.rotation.y += m.w * sim; m.mesh.rotation.y += m.w * sim; });
@@ -695,26 +763,26 @@ function tick(now) {
   // ---- camera rig
   if (mode === 'dive' && diveS) {
     const D = diveS; D.t += dt; const k = Math.min(1, D.t / D.d), e = k * k * (3 - 2 * k), ein = k * k * k;
-    D.S = signal.getWorldPosition(D.S || new V3());
-    camera.position.lerpVectors(D.p0, tmpV.copy(D.S).addScaledVector(D.n, .015), ein * .985 + e * .015);
+    D.S = D.obj.getWorldPosition(D.S || new V3());
+    camera.position.lerpVectors(D.p0, tmpV.copy(D.S).addScaledVector(D.n, D.off), ein * .985 + e * .015);
     const qt = _qt.setFromRotationMatrix(_lookM.lookAt(camera.position, D.S, _up0));
     camera.quaternion.slerpQuaternions(D.q0, qt, Math.min(1, e * 1.6));
     camera.fov = D.f0 + 22 * ein; camera.updateProjectionMatrix();
     ui.fade.style.transition = 'none'; ui.fade.style.opacity = sstep(k, .6, .97);
     flare.update({ x: 0, y: 0 }, 0, W / H, dt);
   } else {
-    const pmin = earthM ? -1.1 : (stop === 0 ? .05 : -1.3), pmax = earthM ? 1.1 : 1.35;
+    const pmin = earthM ? -1.42 : (stop === 0 ? .05 : -1.3), pmax = earthM ? 1.42 : 1.35;
     // inspect / orbit: finger pixels -> angle (one consistent mapping). Planets, the Sun and the Earth globe spin in place with inertia;
     // the overview and the belt orbit the camera instead. Vertical drag tilts the view within limits.
-    const kp = kx * .8;
+    const kp = earthM ? kx * 1.05 : kx * .8;
     if (drag) { rig.pUT += ddy * kp; const vdt = Math.max(Math.min(rdt, .25), .004), kv = 1 - Math.exp(-vdt * 40); rig.vp += (ddy * kp / vdt - rig.vp) * kv; if (!cur) { rig.yUT -= ddx * kx; rig.vy += (-ddx * kx / vdt - rig.vy) * kv; } }
     else if (!ptr || !ptr.drag) {
       if (!cur) { rig.yUT += rig.vy * dt; rig.vy *= Math.exp(-dt * 2.6); } else rig.vy = 0;
-      rig.pUT += rig.vp * dt; rig.vp *= Math.exp(-dt * 3.2);
+      rig.pUT += rig.vp * dt; rig.vp *= Math.exp(-dt * (earthM ? 1.5 : 3.2));
       if (cur && !earthM && !ptr) { const r = Math.exp(-dt * .5); rig.pUT *= r; } // the tilt eases back to level
       if (!REDUCED && !cur && (mode === 'system' || mode === 'boot')) rig.yBT += dt * (stop === 0 ? .012 : .02); // gentle idle drift
     }
-    rig.vy = clamp(rig.vy, -7, 7); rig.vp = clamp(rig.vp, -7, 7);
+    rig.vy = clamp(rig.vy, -7, 7); rig.vp = clamp(rig.vp, earthM ? -5 : -7, earthM ? 5 : 7);
     { const lo = Math.max(pmin - rig.pBT, cur && !earthM ? -.6 : -9), hi = Math.min(pmax - rig.pBT, cur && !earthM ? .6 : 9); if (rig.pUT < lo) { rig.pUT = lo; rig.vp = 0; } else if (rig.pUT > hi) { rig.pUT = hi; rig.vp = 0; } }
     const fly = !!rig.tr, sc = rig.sc;
     // the chase: position offset (relative to the moving anchor, so orbiting planets never lag), distance, yaw, pitch
@@ -802,26 +870,40 @@ function updateLabels() {
     if (id === 'sun') pos = tmpV2.set(0, -SUN_R * 1.2, 0); else if (id === 'belt') pos = beltFocus(tmpV2); else pos = tmpV2.copy(P[id].root.position);
     const s = screenOf(pos); place(el, s.x, s.y, s.z < 1 ? 1 : 0);
   });
-  // earth labels
+  // earth labels (anything near the green spot steps aside so it can never be blocked)
   const showE = mode === 'earth' && (!rig.tr || rig.calm);
   const camDir = _camDir.subVectors(camera.position, E.root.position).normalize();
   const w = _w, n = _n;
-  AP.sigVis = 0;
+  AP.sigVis = 0; let sx = -999, sy = -999;
+  if (showE || mode === 'dive') {
+    signal.getWorldPosition(w); n.subVectors(w, E.root.position).normalize(); const f = n.dot(camDir), s = screenOf(w); sx = s.x; sy = s.y;
+    AP.sigVis = sstep(f, .3, .55);
+    const cdist = Math.hypot(s.x - W / 2, s.y - H / 2) / Math.min(W, H);
+    AP.sigNear = AP.sigVis > .8 && cdist < .2;
+  }
   eLabels.forEach(L => {
     if (!showE) return place(L.el, 0, 0, 0);
     w.copy(L.p).applyMatrix4(E.spin.matrixWorld); n.subVectors(w, E.root.position).normalize();
     const f = n.dot(camDir); const s = screenOf(w);
-    place(L.el, s.x, s.y, sstep(f, L.cont ? .35 : .45, L.cont ? .6 : .7));
+    const clear = AP.sigVis > .1 && Math.hypot(s.x - sx, s.y - sy) < (L.cont ? 150 : 96) ? 0 : 1;
+    place(L.el, s.x, s.y, sstep(f, L.cont ? .35 : .45, L.cont ? .6 : .7) * clear);
   });
   if (showE || mode === 'dive') {
-    signal.getWorldPosition(w); n.subVectors(w, E.root.position).normalize(); const f = n.dot(camDir), s = screenOf(w);
-    AP.sigVis = sstep(f, .3, .55);
-    const cdist = Math.hypot(s.x - W / 2, s.y - H / 2) / Math.min(W, H);
-    AP.sigNear = AP.sigVis > .8 && cdist < .2;
-    place(sigLabel, s.x, s.y, mode === 'earth' ? AP.sigVis : 0);
-    if (mode === 'earth' && AP.sigNear && rig.zoom < .42 && (!rig.tr || rig.calm)) dive();
+    place(sigLabel, sx, sy, mode === 'earth' ? AP.sigVis : 0);
+    if (mode === 'earth' && AP.sigNear && rig.zoom < .42 && (!rig.tr || rig.calm)) dive('hyper');
     if (mode === 'earth' && !AP.sigNear && rig.zoomT < .62) rig.zoomT = .62;
   } else place(sigLabel, 0, 0, 0);
+  // Mars Base Alpha marker + label (Mars stop only)
+  const onMars = mode === 'system' && STOPS[stop].id === 'mars'; marsMarker.visible = onMars || (mode === 'dive' && diveS && diveS.kind === 'mars');
+  AP.marsVis = 0;
+  if (onMars) {
+    marsMarker.getWorldPosition(w); n.subVectors(w, P.mars.root.position).normalize(); const cd = _camDir.subVectors(camera.position, P.mars.root.position).normalize(), f = n.dot(cd), s = screenOf(w);
+    AP.marsVis = sstep(f, .3, .55); AP.marsNear = AP.marsVis > .8 && Math.hypot(s.x - (W / 2 - vo.x), s.y - (H / 2 - vo.y)) / Math.min(W, H) < .3;
+    const gl = marsMarker.userData.glint; gl.scale.setScalar(.06 + .02 * (.5 + .5 * Math.sin(t * 3.1)) + (Math.sin(t * 9) > .93 ? .025 : 0));
+    place(marsLabel, s.x, s.y, (!rig.tr || rig.calm) ? AP.marsVis : 0);
+    if (AP.marsNear && rig.zoom < .6 && (!rig.tr || rig.calm) && !ptr) dive('mars');
+    if (!AP.marsNear && rig.zoomT < .62) rig.zoomT = .62;
+  } else { AP.marsNear = false; place(marsLabel, 0, 0, 0); }
 }
 
 // ---------------------------------------------------------------- boot
@@ -851,7 +933,7 @@ window.__apBegin = begin;
 $('#snd').onclick = () => { sound.unlock(); sound.set(!sound.on); $('#snd').classList.toggle('on', sound.on); };
 if (window.__apWant !== undefined) setTimeout(() => begin(window.__apWant), 0);
 document.addEventListener('visibilitychange', () => { if (sound.ctx) { if (document.hidden) sound.ctx.suspend(); else if (sound.on) sound.ctx.resume(); } });
-AP.go = i => go(i); AP.enterEarth = () => enterEarth(); AP.dive = () => dive(); AP.tapHyper = () => renderHyperCard(); AP.exitHyper = () => exitHyper();
-AP.get = () => ({ hAz: hyper ? hyper.controls.getAzimuthalAngle() : 0, spinU: (inspBody() || {}).u,  tx: rig.target.x, ty: rig.target.y, tz: rig.target.z, cx: camera.position.x, cy: camera.position.y, cz: camera.position.z, calls: AP.calls, tris: AP.tris, yaw: rig.yaw, pitch: rig.pitch, yawT: rig.yawT, mode, stop, card: cardOpen, tr: !!rig.tr, calm: rig.calm, dist: rig.dist, zoom: rig.zoom, sigVis: AP.sigVis, dpr, fps: AP.fps, intro: hyper && !!hyper.intro });
+AP.go = i => go(i); AP.enterEarth = () => enterEarth(); AP.dive = k => dive(k); AP.locate = () => locateSignal(); AP.say = () => say; AP.astroScreen = i => { if (!alt || !alt.astros) return null; const a = alt.astros[i]; a.g.getWorldPosition(_sp); _sp.y += 1.8; _sp.project(alt.cam); return { x: (_sp.x * .5 + .5) * W, y: (-_sp.y * .5 + .5) * H, z: _sp.z }; }; AP.tapHyper = () => renderHyperCard(); AP.exitHyper = () => exitHyper();
+AP.get = () => ({ alt: altKind, marsVis: AP.marsVis, marsNear: AP.marsNear, waving: alt && alt.astros ? alt.astros.map(a => (a.wt > 0 && a.wd <= 0) ? 1 : 0) : null,  hAz: alt ? alt.controls.getAzimuthalAngle() : 0, spinU: (inspBody() || {}).u,  tx: rig.target.x, ty: rig.target.y, tz: rig.target.z, cx: camera.position.x, cy: camera.position.y, cz: camera.position.z, calls: AP.calls, tris: AP.tris, yaw: rig.yaw, pitch: rig.pitch, yawT: rig.yawT, mode, stop, card: cardOpen, tr: !!rig.tr, calm: rig.calm, dist: rig.dist, zoom: rig.zoom, sigVis: AP.sigVis, dpr, fps: AP.fps, intro: alt && !!alt.intro });
 AP.faceSignal = () => { scene.updateMatrixWorld(); const a = signal.getWorldPosition(new V3()).sub(E.root.position).normalize(); rig.yaw = rig.yawT = rig.yB = rig.yBT = Math.atan2(a.x, a.z); rig.pitch = rig.pitchT = rig.pB = rig.pBT = Math.asin(a.y); rig.yU = rig.yUT = rig.pU = rig.pUT = 0; rig.vy = rig.vp = 0; sdv.yB = sdv.pB = sdv.yU = sdv.pU = 0; };
 boot();

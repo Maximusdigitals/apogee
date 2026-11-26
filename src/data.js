@@ -119,3 +119,19 @@ export const HYPER = {
   facts: [['Throughput', '200k orders / s'], ['Finality', 'One block'], ['Funding', 'No VCs, self-funded'], ['Best known for', 'Perps DEX']],
   url: 'https://hyperliquid.xyz'
 };
+
+// Fan-made easter egg on Mars. Not affiliated with SpaceX; the base is fiction, the facts are real.
+export const MARS_SITE = { lat: 12, lon: 176 };
+export const MARS = {
+  title: 'Mars Base Alpha',
+  kicker: 'Easter egg · SpaceX-inspired',
+  desc: 'A fan-made nod to SpaceX’s goal of making life multiplanetary: a stainless-steel, Starship-style lander, two habitat domes, a six-wheel rover and a few very friendly neighbours.',
+  facts: [['Gravity', '0.38 g'], ['Day (sol)', '24 h 39 min'], ['Air', '≈ 95% CO₂'], ['Trip time', '≈ 6–9 months']],
+  sections: [
+    ['Starship', 'SpaceX’s fully reusable launch system is a Super Heavy booster plus the Starship upper stage. Stacked it stands about 121 m tall and 9 m wide; the ship alone is roughly 50 m long. It is built from stainless steel and designed to carry well over 100 tonnes.'],
+    ['Why methane?', 'Starship’s Raptor engines burn methane and liquid oxygen. Mars has a carbon-dioxide atmosphere and water ice underground, the raw ingredients for making both there (the Sabatier process), so return fuel could, in principle, be made on the spot.'],
+    ['The long game', 'SpaceX was founded in 2002 by Elon Musk, and its stated goal is to help make life multiplanetary. Earth and Mars line up for an efficient transfer only about every 26 months.'],
+    ['Mars, quickly', 'Gravity is 38% of Earth’s, the air is under 1% as dense, and fine iron-rich dust tints the sky butterscotch-pink in daylight.']
+  ],
+  fine: 'Fan-made easter egg, not affiliated with or endorsed by SpaceX. No crewed ship has landed on Mars yet.'
+};
