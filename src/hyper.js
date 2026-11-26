@@ -126,5 +126,11 @@ export class Hyper {
       if (k >= 1) { this.intro = null; this.controls.enabled = true; this.controls.update(); }
     } else this.controls.update(dt);
   }
-  pick(ndc) { this.ray.setFromCamera(ndc, this.cam); return this.ray.intersectObject(this.building, false).length > 0; }
+  pick(ndc) {
+    this.ray.setFromCamera(ndc, this.cam);
+    if (this.ray.intersectObject(this.building, false).length) return true;
+    // forgiving tap target: anywhere inside the monument's bounding box counts
+    if (!this.box) { this.building.geometry.computeBoundingBox(); this.box = this.building.geometry.boundingBox.clone().applyMatrix4(this.building.matrixWorld).expandByScalar(1.5); }
+    return this.ray.ray.intersectsBox(this.box);
+  }
 }
